@@ -1,0 +1,24 @@
+# qgen_question_generation — ai_draft × MCQ template
+#
+# Companion to composer_question.go taskNewMCQ() + outputNewMCQ(). In-Go
+# strings are the runtime authority; this .txt mirror exists for IMDA D2
+# transparency review + M14.2 promptfoo regression. Both kept in sync via PR
+# review.
+
+## [TASK]
+Draft a new MCQ from the author's prompt:
+  - Produce 1 stem (the question text) that is clear, unambiguous, and matches
+    the implied subject + difficulty.
+  - Produce 4 options total: 1 marked correct + 3 plausible distractors that
+    probe common misconceptions.
+  - Each option carries a per-option explainer (1-2 sentences) — correct
+    option's explainer affirms the answer; distractor explainers explain WHY
+    the choice is incorrect (anti-misconception).
+  - NEVER repeat the stem text inside an option label.
+  - Difficulty MUST match the implied difficulty of the prompt.
+
+## [EXPECTED OUTPUT]
+JSON: {"candidate": {"stem": string, "options": [{"option_id": string,
+"label": string, "is_correct": bool, "explainer": string}], "intent":
+"new_question", "question_type": "mcq"}}.
+Exactly 4 options, exactly 1 with is_correct=true.

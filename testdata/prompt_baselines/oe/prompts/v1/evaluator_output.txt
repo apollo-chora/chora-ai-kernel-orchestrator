@@ -1,0 +1,6 @@
+JSON only: {"criterion_scores": [{"criterion_id": string, "title": string, "score": number, "max_score": number, "feedback": string}, ...], "comment": string}.
+  - One criterion_scores entry per rubric criterion (match criterion_id exactly).
+  - score ∈ [0, max_score]; max_score > 0 (default 1.0).
+  - feedback: evidence-grounded, per criterion (cite the learner's phrasing).
+  - comment: ALWAYS non-empty (right OR wrong answer) — the learner-facing per-question note.
+NEVER write commentary outside the JSON. NEVER fabricate learner content. NEVER emit a numeric points_earned / composite (a deterministic scorer derives it).

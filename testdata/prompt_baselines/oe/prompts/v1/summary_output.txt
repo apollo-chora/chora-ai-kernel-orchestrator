@@ -1,0 +1,3 @@
+JSON only: {"overall_comment": string}.
+  - overall_comment: the holistic whole-assessment narrative (Markdown, 3-6 sentences, learner-facing, second person).
+NEVER write commentary outside the JSON. NEVER invent topics or outcomes not present in the assessment results. NEVER emit per-criterion scores in this mode.

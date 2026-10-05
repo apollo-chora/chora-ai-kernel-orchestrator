@@ -1,0 +1,4 @@
+JSON only: {"accepted": bool, "feedback": string}.
+  - accepted=true: feedback MAY be empty.
+  - accepted=false: feedback MUST be non-empty + actionable (cite the criterion_id / field + the fix).
+NEVER write commentary outside the JSON. NEVER emit sub-scores or a re-graded composite — you are the judge, not the grader. If you cannot parse the evaluator output, return {"accepted": false, "feedback": "input_unparseable: <reason>"}.

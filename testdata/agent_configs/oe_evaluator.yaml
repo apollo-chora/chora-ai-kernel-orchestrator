@@ -1,0 +1,21 @@
+# oe_evaluator — per-sub-agent model + prompt config (ADR-172 §D2/§D4/§D5).
+#
+# AGENT-DRIVEN tiering (mirrors qgen agentconfig shape, CR qgen 2026-06-01):
+# the evaluator is the grader of record — it scores ONE OE answer against a
+# weighted rubric + model_answer AND, in assess_summary mode, drafts the
+# holistic whole-assessment narrative. Both are quality-critical (a learner's
+# grade rides on them) so it runs the HIGH text tier. It sends primary_model as
+# the gateway logical_model_id + fallback_models as the agent-declared fallback
+# chain (InvokeRequest.fallback_logical_model_ids); the gateway HONOURS it.
+#
+#   HIGH = evaluator → gemini-3.1-pro-preview → gemini-2.5-pro
+#
+# 3.x models are global-endpoint-only; the gateway runs VERTEX_AI_LOCATION=global.
+# prompt_version selects the composer template version (embedded v1 here).
+agent: oe_evaluator
+sub_agents:
+  evaluator:
+    tier: high
+    primary_model: gemini-3.1-pro-preview
+    fallback_models: [gemini-2.5-pro]
+    prompt_version: v1

@@ -1,0 +1,58 @@
+# qgen_question_generation — ai_draft × OE template
+#
+# Companion to composer_question.go taskNewOE() + outputNewOE(). In-Go
+# strings are the runtime authority; this .txt mirror exists for IMDA D2
+# transparency review + M14.2 promptfoo regression. Both kept in sync via PR
+# review.
+#
+# Bumped 2026-05-17 to emit the OpenAPI canonical OEPayload shape
+# (chora-contracts/openapi/creation-questions.yaml §1100-1121) per
+# Acceptance Gate #2 of docs/m13/ack-oe-ai-assist-plan-2026-05-17.md.
+
+## [TASK]
+Draft a new open-ended question from the author's prompt:
+  - Produce 1 stem that elicits a substantive narrative or analytical response
+    (NOT a yes/no — open-ended means the learner explains reasoning).
+  - Produce 1 model_answer — a worked sample answer of at least 40 words
+    (typically 3-6 sentences) demonstrating the depth expected at the implied
+    difficulty.
+  - Produce a rubric of AT LEAST 3 criteria. Each criterion is
+    {criterion_id (e.g. "c1"), title (short label), description (the
+    assessable behaviour), weight (number in [0.0, 1.0])}. Rubric weights MUST
+    sum to 1.0 (within 1% tolerance).
+  - Pick a grader_tier — T1 for shorter / more direct answers, T2 for nuanced
+    / longer responses requiring multi-criterion judgement.
+  - Optionally include min_response_chars + max_response_chars that bracket
+    the expected learner answer length for the chosen grader_tier.
+  - Difficulty MUST match the implied difficulty of the prompt.
+
+## [EXPECTED OUTPUT]
+JSON: {"candidate": {"stem": string, "question_type": "oe",
+"intent": "new_question", "oe_payload": {"model_answer": string,
+"rubric": [{"criterion_id": string, "title": string, "description": string,
+"weight": number}, ...], "grader_tier": "T1" | "T2",
+"min_response_chars": number (optional), "max_response_chars": number
+(optional)}}}.
+
+Constraints: rubric MUST have ≥3 entries; weights are numbers in [0.0, 1.0]
+and MUST sum to 1.0 within ±0.01. grader_tier MUST be exactly "T1" or "T2".
+model_answer MUST be at least 40 words.
+
+Example (structurally valid):
+{"candidate": {"stem": "Explain how photosynthesis converts light energy into
+chemical energy in plant cells.", "question_type": "oe",
+"intent": "new_question", "oe_payload": {"model_answer": "Photosynthesis is
+the process by which plants convert light energy from the sun into chemical
+energy stored in glucose. In the light-dependent reactions, chlorophyll in
+the thylakoid membranes absorbs photons, splitting water and generating ATP
+and NADPH. The Calvin cycle then uses these energy carriers to fix carbon
+dioxide into sugar.", "rubric": [
+{"criterion_id": "c1", "title": "Light-dependent reactions",
+"description": "Identifies role of chlorophyll absorbing photons and water
+splitting.", "weight": 0.4},
+{"criterion_id": "c2", "title": "Energy carriers",
+"description": "Mentions ATP and NADPH outputs of the light reactions.",
+"weight": 0.3},
+{"criterion_id": "c3", "title": "Calvin cycle",
+"description": "Describes carbon fixation using the energy carriers.",
+"weight": 0.3}], "grader_tier": "T2"}}}.

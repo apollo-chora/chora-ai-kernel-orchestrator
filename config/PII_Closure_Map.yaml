@@ -1,0 +1,112 @@
+# PII_Closure_Map for the chora_ai_kernel domain (AI Kernel, Team 3 Platform).
+#
+# Source-of-truth: .claude/skills/account-closure-saga/SKILL.md
+# Owning DB: chora_ai_kernel (kennel-owned migrations, services/chora-ai-kernel-orchestrator/migrations).
+#
+# Scope today: the companion_chat agent's ADK sessions (ADR-254 D6), which live in
+# the dedicated schema companion_chat_sessions (migration 0057) in the four tables
+# migration 0058 pre-creates in the google.golang.org/adk session/database shape
+# (sessions, events, app_states, user_states; GORM snake_case columns) plus the
+# tenant column + RLS the owner ruled; the agent runs no DDL. They carry learner
+# chat content, which is PII:
+# on closure the rows keyed by the closing learner are pseudonymised (content
+# dropped) and the residue is crypto-shredded with the learner's DEK (ADR-186).
+#
+# Keying (owner ruling at G1a 2026-08-22 + the chat binary as built by WP-A):
+# every table carries tenant_id (uuid, migration 0058) under ENABLE + FORCE RLS
+# with a STRICT chora.tenant_id policy; app_name is the constant "companion_chat",
+# the ADK user_id column is "{tenant_id}:{gcid}", session_id = conversation_id.
+# A closure for gcid X in tenant T sets the GUC chora.tenant_id = T on its
+# connection (the policy hides every row otherwise) and touches every row WHERE
+# tenant_id = T AND user_id = 'T:X' across the three user-keyed tables;
+# app_states is app-level per tenant (no learner data) and is preserved.
+#
+# Executor: the closure saga's ai_kernel step (ADR-184 static PERMISSIVE policy on
+# chora_ai_kernel). NOTE (open, 2026-08-22): no code consumes this file for
+# chora_ai_kernel yet; the chat agent is the sole accessor of the schema. The
+# executor placement (closure orchestrator vs the agent) is flagged to the
+# coordinator in the same message as this file; this map is the declaration the
+# executor is built against, not a claim that closure already runs here.
+#
+# The other chora_ai_kernel tables (LangGraph checkpoints, outbox, parks, prompt
+# registry, idempotency keys) hold workflow state keyed by thread/workflow ids with
+# tenant_id + gcid stamps and no free-text learner content beyond what the
+# checkpoint blobs carry for in-flight runs; their closure handling is the
+# checkpoint TTL + the ADR-184 policy and is out of scope for this file's first
+# version.
+
+domain: chora_ai_kernel
+version: "1.0"
+
+fields_to_tokenize:
+  - table: companion_chat_sessions.sessions
+    keyed_by: "(tenant_id, user_id = tenant_id:gcid)"
+    columns:
+      # ADK session state map: may carry the seed the kennel sent at the first
+      # turn (familiar memory, weakness summary, growth stage). Drop it whole.
+      - column: state
+        strategy: drop
+        value: ""
+
+  - table: companion_chat_sessions.events
+    keyed_by: "(tenant_id, user_id = tenant_id:gcid)"
+    columns:
+      # The learner's typed turns and the Companion's replies (Gemini Content).
+      - column: content
+        strategy: drop
+        value: ""
+      # Tool calls / state deltas recorded per event (may quote learner text).
+      - column: actions
+        strategy: drop
+        value: ""
+      - column: grounding_metadata
+        strategy: drop
+        value: ""
+      - column: custom_metadata
+        strategy: drop
+        value: ""
+      - column: citation_metadata
+        strategy: drop
+        value: ""
+      # Model error text can echo the prompt.
+      - column: error_message
+        strategy: drop
+        value: ""
+      # Who authored the event ("user" / the agent name): not PII, preserved
+      # so the row shape stays valid for the library's reads.
+      - column: author
+        strategy: preserve
+        value: ""
+      # Token accounting survives for IMDA D1 accountability (no content).
+      - column: usage_metadata
+        strategy: preserve
+        value: ""
+
+  - table: companion_chat_sessions.user_states
+    keyed_by: "(tenant_id, user_id = tenant_id:gcid)"
+    columns:
+      - column: state
+        strategy: drop
+        value: ""
+
+  - table: companion_chat_sessions.app_states
+    # App-level state per tenant (app_name "companion_chat", tenant_id): no learner data.
+    columns:
+      - column: state
+        strategy: preserve
+        value: ""
+
+retention_days_by_jurisdiction:
+  EU: 2557
+  SG: 2557
+  US: 1826
+  ZA: 1826
+  BR: 1826
+  default: 2557
+
+on_creator_closure:
+  # The learner is the only "creator" in this schema: their sessions and
+  # events cascade-pseudonymise (content dropped, rows kept for the library's
+  # referential shape, residue crypto-shredded per ADR-186).
+  strategy: cascade_pseudonymise
+  show_authorship_as: "Former member"

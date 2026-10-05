@@ -1,0 +1,41 @@
+# qgen_question — per-sub-agent model + prompt config.
+#
+# AGENT-DRIVEN tiering (CR qgen 2026-06-01): this YAML is the single source of
+# truth for each sub-agent's model tier. The agent sends primary_model as the
+# gateway's logical_model_id and fallback_models as the agent-declared fallback
+# chain (InvokeRequest.fallback_logical_model_ids); the gateway HONOURS it.
+#
+# Tiers (locked 2026-06-01):
+#   HIGH  = generation + evaluation → gemini-3.1-pro-preview → gemini-2.5-pro
+#   CHEAP = assurance              → gemini-3.5-flash       → gemini-2.5-flash
+#
+# 3.x models are global-endpoint-only; the gateway runs VERTEX_AI_LOCATION=global
+# (a verified strict superset). prompt_version selects the composer template
+# version (resolved against the GCS prompt registry, falling back to embedded v1).
+agent: qgen_question
+sub_agents:
+  assurance:
+    tier: cheap
+    primary_model: gemini-3.5-flash
+    fallback_models: [gemini-2.5-flash]
+    prompt_version: v1
+  generation:
+    tier: high
+    primary_model: gemini-3.1-pro-preview
+    fallback_models: [gemini-2.5-pro]
+    prompt_version: v1
+  evaluation:
+    tier: high
+    primary_model: gemini-3.1-pro-preview
+    fallback_models: [gemini-2.5-pro]
+    prompt_version: v1
+  # qgen_generate mode=compose (ADR-254 D2/D6): the testset composer ported
+  # from the kennel (orchestrators/testset_composer.py). It reads exam-paper
+  # PDFs/images by reference to extract marks cues, so it runs the pro
+  # multimodal tier the kennel used (gemini-2.5-pro, QGEN_COMPOSER_MODEL_ID
+  # default), flash as the fallback.
+  compose:
+    tier: high
+    primary_model: gemini-2.5-pro
+    fallback_models: [gemini-2.5-flash]
+    prompt_version: v1

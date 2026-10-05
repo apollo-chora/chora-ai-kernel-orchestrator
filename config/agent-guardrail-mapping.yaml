@@ -1,0 +1,246 @@
+# agent-guardrail-mapping.yaml — Cloud Model Armor template lookup
+# per agent_id.
+#
+# Per ADR-152 (chora-guardrail superseded by Cloud Model Armor), each LLM-
+# issuing service consults this mapping at request time to determine which
+# Cloud Model Armor template to invoke for pre-call + post-call screening.
+#
+# Templates are provisioned via chora-infra/terraform/modules/m10-model-armor/
+# (3 canonical tiers per environment):
+#   - chora-guardrail-strict-{env}     — full RAI MEDIUM_AND_ABOVE + PI + SDP + URI, BLOCK
+#   - chora-guardrail-balanced-{env}   — RAI HIGH + PI + SDP, BLOCK
+#   - chora-guardrail-permissive-{env} — PI HIGH only, INSPECT_ONLY (audit)
+#
+# Template resource format:
+#   projects/{project}/locations/{location}/templates/{template_id}
+# where:
+#   project  = chora-local (build-out single-project per ADR-144)
+#   location = us-central1 (agentic region per ADR-148)
+#
+# The LLM-issuing service constructs the full resource name at runtime by
+# combining `template_tier` below with env-derived project + location.
+#
+# Schema:
+#   agents.<agent_id>:
+#     template_tier: strict | balanced | permissive
+#     rationale: human-readable note for audit + review
+#
+# Risk-tier guidance (D9 LOCKED 2026-05-07, preserved by ADR-152):
+#   - High-stakes (governance, public learner chat, A2A external) → strict
+#   - Standard learner-facing crews → balanced
+#   - Internal classifiers / low-PII agents → permissive (audit-only)
+#
+# =============================================================================
+# ⚠⚠ ENFORCED vs DECLARED, verified 2026-08-07. READ THIS BEFORE CITING A TIER.
+# =============================================================================
+#
+# THE GATEWAY DOES NOT READ THIS FILE. The paragraph above says each LLM-issuing
+# service "consults this mapping at request time". No deployed service does.
+# chora-model-gateway resolves the tier from a hardcoded switch in
+# cmd/server/main.go:567-590: it defaults every agent to BALANCED and raises
+# exactly three ids to strict. `permissive` is not implemented there at all.
+# The only code that ever parsed this file lives in chora-agent-executor, which
+# has no deployment (retired under ADR-145/146).
+#
+# So the declarations below are INTENT. This block is the enforced reality
+# beside them. NO DECLARATION BELOW WAS CHANGED to produce it.
+#
+#   agent_id                    DECLARED here   ENFORCED at the gateway
+#   -------------------------   -------------   -----------------------
+#   qgen_question               balanced        STRICT   (declared is looser)
+#   qgen_critic                 balanced        STRICT   (declared is looser)
+#   familiar_companion          strict          strict   (agree; pre-rename id, until G4)
+#   companion_chat              strict          strict   (agree; ADR-254 D9 rename, added to the switch in the W3 image, main 800445a9b)
+#   oe_evaluator                balanced        balanced (agree)
+#   oe_moderator                balanced        balanced (agree)
+#   weakness_analyser_crew      strict          balanced (enforced is looser)
+#   weakness_analyzer           strict          balanced (enforced is looser)
+#   weakness_extractor          strict          balanced (enforced is looser)
+#   weakness_diagnoser          strict          balanced (enforced is looser)
+#   social_moderation           strict          balanced (enforced is looser)
+#   governance_gatekeeper       strict          balanced (enforced is looser)
+#   familiar_persona            strict          balanced (enforced is looser; id renames to companion_persona in the W4 consumption cut)
+#   companion_diagnoser         balanced        balanced (agree; ADR-254 id, predecessor weakness_diagnoser was enforced balanced)
+#   companion_extractor         balanced        balanced (agree; ADR-254 id, predecessor weakness_extractor was enforced balanced)
+#   kg_explorer                 balanced        balanced (agree; ADR-254 id)
+#   qgen_renderer               balanced        balanced (agree; ADR-254 id, image render, no text pre-screen of its own)
+#   content_recommender         balanced        balanced (agree; ADR-254 id)
+#   content_moderation          balanced        balanced (agree; ADR-254 id, predecessor social_moderation was enforced balanced)
+#   duel_atom_smith             balanced        balanced (agree; ADR-254 id)
+#   profile_conjurer            balanced        balanced (agree; ADR-254 id)
+#   closure_saga_orchestrator   permissive      balanced (enforced is stricter)
+#   <any id not in the switch>  strict          balanced (enforced is looser)
+#
+#   G1' gap 1 (2026-08-13), the two Embed-RPC callers. COMMENT-ONLY rows per
+#   the G1-doc convention: no declaration below changed. Both ids enter at
+#   `permissive`, enforced STRUCTURALLY in the gateway's Embed flow itself
+#   (service_embed.go): text-to-vector runs NO Armor leg in either direction,
+#   the ledger row records ArmorPre/ArmorPost = Bypassed markers, cost 0 by
+#   ruling. They never reach the Invoke switch above, so its default cannot
+#   apply to them.
+#
+#   consumption_memory_embedder permissive      permissive (structural: Embed RPC, no Armor leg)
+#   creation_atom_embedder      permissive      permissive (structural: Embed RPC, no Armor leg)
+#
+# WHY THE DIVERGENCE IS DOCUMENTED RATHER THAN FIXED (owner ruling 2026-08-07):
+# making the gateway read this file would move ten ids at once, in BOTH
+# directions, including LOOSENING the two highest-volume agents on the platform.
+# The owner ruled that nothing tightens while documentation work is in flight.
+# Reconciling this is tracked as requirement G1-doc, and any future change to
+# the enforcement is owner-gated because it changes the LLM chokepoint (ADR-163).
+#
+# A CORRECTION THIS BLOCK EXISTS TO KILL: it has been recorded in more than one
+# place that the kid-facing chat runs on `balanced`, a downgrade on the most
+# learner-facing surface. IT DOES NOT. The pre-rename agent sent AgentID
+# "familiar_companion" (poc/familiar_adk_go/cmd/familiar/main.go:240, now
+# retired) and the switch raises exactly that id to strict. The `balanced`
+# reading came from FAMILIAR_ARMOR_TEMPLATE in that Deployment's env, which
+# NO CODE AT HEAD READS: vestigial config that looks like a control and is
+# not one. ADR-254 D9 renamed the id to "companion_chat"
+# (agents/companion_chat_adk_go/internal/agent/builder.go, Name); the switch
+# did NOT know the new id until the W3 image (main 800445a9b, 2026-08-22),
+# which is the one way this file's default-strict could have been believed
+# to cover a gap it does not: THE SWITCH, NOT THIS FILE, IS THE TIER.
+# -----------------------------------------------------------------------------
+
+version: 1
+schema: chora-contracts/v1/agent-guardrail-mapping
+
+agents:
+  # ---- Governance crew (high-stakes; output is auditor-facing) ----
+  governance_gatekeeper:
+    template_tier: strict
+    rationale: "Auditor-facing output; any leak is a Tier 3 P0 incident."
+
+  # ---- A2A external surface (Chora-as-learner exposed to external agents) ----
+  a2a_external_pipeline:
+    template_tier: strict
+    rationale: "Untrusted external A2A peers per ADR-132; jailbreak + PI required."
+
+  # ---- Content Creation crew (learner-issued prompts can be adversarial) ----
+  qgen_question_generator:
+    template_tier: balanced
+    rationale: "Learner-issued atom-authoring prompts; RAI@HIGH + PI block."
+  qgen_explainer:
+    template_tier: balanced
+    rationale: "Same risk profile as qgen_question_generator."
+  # qgen 2-agent crew (ADR-169) — the LIVE engine agent_ids used by
+  # orchestrators/qgen_crew.py (pre-screen on qgen_question, post-screen on
+  # qgen_critic). Balanced mirrors qgen_question_generator's risk profile.
+  # Without these explicit entries qgen_critic would fall back to default
+  # (strict) and over-block learner-authored content.
+  qgen_question:
+    template_tier: balanced
+    rationale: "qgen crew generator (ADR-169); learner-issued prompt pre-screen."
+  qgen_critic:
+    template_tier: balanced
+    rationale: "qgen crew critic (ADR-169); candidate-payload post-screen."
+
+  # ---- OE grading crew (ADR-172) — learner free-text answers ----
+  # The orchestrator graph (orchestrators/oe_grading_crew.py) screens as
+  # agent_id=oe_evaluator on BOTH the pre-screen (learner free-text answer) and
+  # the post-screen (grader comment). oe_moderator is listed for completeness
+  # (the moderate node does not screen today). Balanced mirrors qgen's
+  # learner-facing risk profile; without these entries they fall back to default
+  # (strict) and over-block legitimate learner answers + grading rationale.
+  oe_evaluator:
+    template_tier: balanced
+    rationale: "OE grading evaluator (ADR-172); learner-answer pre-screen + grader-comment post-screen."
+  oe_moderator:
+    template_tier: balanced
+    rationale: "OE grading moderator (ADR-172); judges evaluator grading (internal grading metadata)."
+
+  # ---- Growth-Edge analyser crew (ADR-205) — the highest-bias-risk agent ----
+  # Diagnoses where a learner is weak from uploaded marked tests / notes /
+  # scribbles. strict (not balanced) because it is learner-facing, ingests
+  # high-PII artifacts (a minor's exam paper), and mislabelling a learner's
+  # ability is a fairness (D4) hazard (ADR-205 D9/D10). The orchestrator graph
+  # screens input (extracted text + clue DATA) + output (diagnosis JSON) as
+  # agent_id=weakness_analyser_crew; the gke:// agents self-identify as
+  # weakness_extractor / weakness_diagnoser. All strict — never fall back.
+  weakness_analyser_crew:
+    template_tier: strict
+    rationale: "Growth-Edge diagnosis (ADR-205); learner-facing, PII-ingesting, minors, fairness-critical."
+  weakness_analyzer:
+    template_tier: strict
+    rationale: "ADR-205 literal alias of weakness_analyser_crew; declared so a stale agent_id never falls back below strict."
+  weakness_extractor:
+    template_tier: strict
+    rationale: "Growth-Edge vision->text extractor agent (ADR-205 WS-2); raw exam artifact ingestion."
+  weakness_diagnoser:
+    template_tier: strict
+    rationale: "Growth-Edge diagnoser agent (ADR-205 WS-2); the eval-gated diagnosis brain (ADR-174)."
+
+  # ---- Companion crew (kid-facing — strict on content safety) ----
+  # ADR-254 D9 renamed the chat agent familiar_companion -> companion_chat.
+  # Both ids are declared strict for the overlap (the old chora-familiar
+  # Deployment still stamps familiar_companion until it retires at G4; drop
+  # the alias then). REMINDER: the gateway enforces its main.go switch, not
+  # this file; both ids are in that switch since main 800445a9b.
+  companion_chat:
+    template_tier: strict
+    rationale: "Kid-facing chat; RAI MEDIUM_AND_ABOVE blocks sexually-explicit/dangerous early."
+  familiar_companion:
+    template_tier: strict
+    rationale: "Pre-rename alias of companion_chat for the W3-to-G4 overlap; drop at G4 with the old Deployment."
+  companion_recommender:
+    template_tier: balanced
+    rationale: "Curation prompts; lower PII risk than direct chat."
+
+  # ---- ADR-254 crews (kennel-dispatched agents, 2026-08-22) ----
+  # Declared at their predecessors' ENFORCED tier (balanced: the gateway's
+  # switch default) so this file and the switch agree; any tightening is
+  # owner-gated (ADR-163 chokepoint).
+  companion_diagnoser:
+    template_tier: balanced
+    rationale: "Growth-Edge diagnoser (ADR-254 companion_diagnose); predecessor weakness_diagnoser was enforced balanced."
+  companion_extractor:
+    template_tier: balanced
+    rationale: "Growth-Edge extractor (ADR-254 companion_extract); predecessor weakness_extractor was enforced balanced."
+  kg_explorer:
+    template_tier: balanced
+    rationale: "Knowledge Graph Explorer (ADR-254 kg_explore; the ex fog scout skill)."
+  qgen_renderer:
+    template_tier: balanced
+    rationale: "qgen image renderer (ADR-254 qgen_render); the image call carries no learner text of its own."
+  content_recommender:
+    template_tier: balanced
+    rationale: "Dose recommender (ADR-254 recommend); curation prompts."
+  content_moderation:
+    template_tier: balanced
+    rationale: "Post moderation (ADR-254); predecessor social_moderation was enforced balanced."
+  duel_atom_smith:
+    template_tier: balanced
+    rationale: "Duel round atom smith (ADR-254)."
+  profile_conjurer:
+    template_tier: balanced
+    rationale: "Profile tag conjurer (ADR-254)."
+  # Companion Persona guidance note (CHO-2015, ADR-219 D2) — the single
+  # sanctioned free-text field on the learner-designed Persona sheet. It is
+  # screened at SAVE time (chora-consumption persona PUT) and again at
+  # runtime before it enters the kid-facing Companion system prompt. strict:
+  # the note is minor-accessible config, so RAI + PI + jailbreak all block.
+  companion_persona:
+    template_tier: strict
+    rationale: "Learner persona note enters a kid-facing system prompt; block RAI + PI + jailbreak at save."
+
+  # ---- Closure orchestrator (saga compensations — internal only) ----
+  closure_saga_orchestrator:
+    template_tier: permissive
+    rationale: "Internal compensation messages; audit-only for PI sniff."
+
+  # ---- Moderation crew (chora-sharing — high RAI sensitivity) ----
+  social_moderation:
+    template_tier: strict
+    rationale: "Social posts + replies pre-publish; blocks RAI + PI + URI."
+
+  # ---- Reporter (chora-agent-executor — generates audit summaries) ----
+  reporter:
+    template_tier: balanced
+    rationale: "Internal report generation; PI block + RAI HIGH."
+
+# Default fallback when an agent_id is not listed above. Strict by default
+# for safety — operators must explicitly downgrade via this file.
+default:
+  template_tier: strict
+  rationale: "Unknown agent_id — fall back to strict; require explicit downgrade."

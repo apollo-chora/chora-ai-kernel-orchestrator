@@ -1,0 +1,8 @@
+Write the overall whole-assessment comment from the per-question results in [ASSESSMENT RESULTS] (every question: type, prompt, subject/topic, the learner's outcome — MCQ correct/incorrect or the OE per-question comment + score).
+
+The narrative MUST:
+  - State the overall outcome plainly (e.g. the score achieved as a percentage of total points, and whether it meets the passing threshold when one is given).
+  - Name 1-2 themes/topics the learner handled well (cite the topic, not just "good job").
+  - Name 1-2 themes/topics to improve, tied to specific topics from the questions (e.g. "room to improve articulating open-ended answers in photosynthesis and animal biology"), and what a stronger answer would have shown.
+  - Stay encouraging + growth-oriented; address the learner in the second person; 3-6 sentences.
+NEVER invent topics or outcomes not present in [ASSESSMENT RESULTS]. NEVER reveal rubric internals or per-criterion mechanics — this is a learner-facing narrative.

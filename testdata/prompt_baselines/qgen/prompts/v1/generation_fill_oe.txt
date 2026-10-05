@@ -1,0 +1,45 @@
+# qgen_question_generation — ai_model_answer × OE template
+#
+# Companion to composer_question.go taskFillOE() + outputFillOE(). In-Go
+# strings are the runtime authority; this .txt mirror exists for IMDA D2
+# transparency review + M14.2 promptfoo regression. Both kept in sync via PR
+# review.
+#
+# Bumped 2026-05-17 to emit the OpenAPI canonical OEPayload shape
+# (chora-contracts/openapi/creation-questions.yaml §1100-1121) per
+# Acceptance Gate #2 of docs/m13/ack-oe-ai-assist-plan-2026-05-17.md.
+#
+# Placeholders: {{author_stem}}, {{author_rubric}} (per-criterion lines:
+# "1. <criterion> (weight=<float>)").
+
+## [TASK]
+Fill in the model_answer + grader_tier for the author's existing open-ended
+question. NEVER re-draft the stem. If the author supplied a rubric, preserve
+each criterion verbatim and the model_answer MUST address every rubric
+criterion. If a criterion is missing its `weight`, you MUST fill the missing
+weight so the rubric weights sum to 1.0 (within 1%).
+
+Author's stem (verbatim, do NOT alter): {{author_stem}}
+Author's rubric (preserve verbatim — your model_answer addresses each
+criterion; round-trip in oe_payload.rubric):
+{{author_rubric}}
+
+Produce a model_answer of at least 40 words (typically 3-6 sentences)
+demonstrating the depth expected at the implied difficulty + addressing each
+rubric criterion when present. Pick a grader_tier — T1 for shorter / more
+direct answers, T2 for nuanced / longer responses requiring multi-criterion
+judgement.
+
+## [EXPECTED OUTPUT]
+JSON: {"candidate": {"stem": <verbatim author stem>,
+"question_type": "oe", "intent": "model_answer_fill",
+"oe_payload": {"model_answer": <FILLED>,
+"rubric": [{"criterion_id": string, "title": string, "description": string,
+"weight": number}, ...] (round-trip author rubric verbatim; fill any missing
+weights so the rubric sums to 1.0 within ±0.01), "grader_tier": "T1" | "T2",
+"min_response_chars": number (optional), "max_response_chars": number
+(optional)}}}.
+
+NEVER alter the stem or the author-provided rubric criteria text.
+model_answer MUST be at least 40 words. grader_tier MUST be exactly "T1" or
+"T2".

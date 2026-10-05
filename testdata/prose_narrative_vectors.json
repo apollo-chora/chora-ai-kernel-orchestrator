@@ -1,0 +1,133 @@
+{
+  "_comment": [
+    "Test vectors for the prose-narrative predicate (ADR-254 dose lane).",
+    "INTENT: ONE copy, read by BOTH the Go original proseNarrative() in",
+    "services/chora-consumption/internal/adapter/http/companion_handlers.go and the",
+    "Python port used by the kennel dose lane to decide OK vs FAILED.",
+    "",
+    "STATUS 2026-08-23: CLOSED. The Go side now reads this file.",
+    "TestProseNarrative_SharedVectors in",
+    "services/chora-consumption/internal/adapter/http/companion_handlers_narrative_test.go",
+    "loads and iterates every vector below, so adding a vector here turns RED on",
+    "whichever implementation does not handle it. The control is real rather than",
+    "believed. Verified by four discriminating checks, not by a green run: a vector",
+    "Go must fail DOES fail; removing a required bare-scalar vector fails by name;",
+    "an empty vector list fails on an explicit vacuous-pass guard; and a missing",
+    "file fails loud AT the monorepo root rather than climbing out of a git",
+    "worktree into whatever checkout contains it.",
+    "",
+    "The extras here (bare scalars, quoted string, fence-tag rules, NaN/Infinity)",
+    "pin semantics the Go ORIGINAL had no test for, and the original is what",
+    "renders to a learner. The bare-scalar four are required BY NAME by the Go",
+    "test: they pin the live Go-versus-TypeScript disagreement (DEBT-REGISTER 1.1,",
+    "Go rejects them via json.Valid, the FE asProse does not), so removing them",
+    "would silently un-pin the thing this file exists to pin.",
+    "",
+    "DO NOT inline these cases into any implementation's test. An inline copy is",
+    "precisely the drift this file prevents."
+  ],
+  "_semantics": [
+    "input -> expected output. Empty output means NOT PROSE (rejected).",
+    "Order of operations in the original: trim, unwrap one markdown fence, then",
+    "reject empty / leading brace / leading bracket / anything json.Valid accepts.",
+    "The fence unwrap is NOT optional: a fenced JSON body must reject, and fenced",
+    "prose must survive. A port that skips it accepts fenced JSON at a learner."
+  ],
+  "vectors": [
+    {
+      "name": "empty",
+      "in": "",
+      "out": ""
+    },
+    {
+      "name": "whitespace_only",
+      "in": "   \n\t ",
+      "out": ""
+    },
+    {
+      "name": "json_object",
+      "in": "{\"a\":1}",
+      "out": ""
+    },
+    {
+      "name": "json_array",
+      "in": "[1,2]",
+      "out": ""
+    },
+    {
+      "name": "bare_scalar_number",
+      "in": "42",
+      "out": ""
+    },
+    {
+      "name": "bare_scalar_true",
+      "in": "true",
+      "out": ""
+    },
+    {
+      "name": "bare_scalar_null",
+      "in": "null",
+      "out": ""
+    },
+    {
+      "name": "quoted_string_is_still_json",
+      "in": "\"quoted\"",
+      "out": ""
+    },
+    {
+      "name": "plain_prose",
+      "in": "You are doing well.",
+      "out": "You are doing well."
+    },
+    {
+      "name": "prose_needs_trimming",
+      "in": "  You are doing well.  ",
+      "out": "You are doing well."
+    },
+    {
+      "name": "fenced_json_rejects",
+      "in": "```json\n{\"a\":1}\n```",
+      "out": ""
+    },
+    {
+      "name": "fenced_scalar_rejects",
+      "in": "```json\n42\n```",
+      "out": ""
+    },
+    {
+      "name": "fenced_prose_survives",
+      "in": "```\nYou are doing well.\n```",
+      "out": "You are doing well."
+    },
+    {
+      "name": "fence_no_newline_survives",
+      "in": "```Here is a hint```",
+      "out": "Here is a hint"
+    },
+    {
+      "name": "fence_first_line_with_space_is_content",
+      "in": "```my note\nbody\n```",
+      "out": "my note\nbody"
+    },
+    {
+      "name": "prose_containing_braces_survives",
+      "in": "Try the set {1,2,3} next.",
+      "out": "Try the set {1,2,3} next."
+    },
+    {
+      "name": "nan_is_not_json_to_go",
+      "in": "NaN",
+      "out": "NaN"
+    },
+    {
+      "name": "infinity_is_not_json_to_go",
+      "in": "Infinity",
+      "out": "Infinity"
+    },
+    {
+      "name": "negative_infinity_is_not_json_to_go",
+      "in": "-Infinity",
+      "out": "-Infinity"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "event_id": "01a02d66-3917-741f-999a-f9c71736ba62",
+  "gcid": "00000000-0000-7000-8000-000000001999",
+  "idempotency_key": "01957c8c-2222-7000-aaaa-222222222222",
+  "occurred_at": "2026-08-23T06:54:29.143856Z",
+  "published_at": "2026-08-23T06:54:29.143856Z",
+  "schema_version": "1",
+  "source_project": "chora-content",
+  "source_service": "chora-consumption",
+  "tenant_id": "11111111-1111-7111-8111-111111111111",
+  "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+  "tracestate": ""
+}

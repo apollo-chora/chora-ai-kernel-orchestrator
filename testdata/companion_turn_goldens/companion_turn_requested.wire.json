@@ -1,0 +1,17 @@
+{
+  "conversation_id": "01957c8c-4444-7000-aaaa-444444444444",
+  "familiar_id": "01957c8c-1111-7000-aaaa-1111aaaa1111",
+  "familiar_memory": "{\"recent\":[\"asked about fractions last week\"]}",
+  "gcid": "00000000-0000-7000-8000-000000001999",
+  "learner_weakness": "{\"edges\":[{\"concept\":\"dividing fractions\",\"strength\":0.8}]}",
+  "locale": "en-SG",
+  "mana_action_code": "companion_chat_turn_basic",
+  "mana_tier": "basic",
+  "message": "why do fractions flip when you divide?",
+  "prompt_overrides_json": "{\"system\":\"you are Ember, a patient maths companion\"}",
+  "requested_at": "2026-08-23T06:30:00Z",
+  "resolved_prompt_version": "v3",
+  "tenant_id": "11111111-1111-7111-8111-111111111111",
+  "turn_id": "01957c8c-2222-7000-aaaa-222222222222",
+  "turn_kind": "typed"
+}

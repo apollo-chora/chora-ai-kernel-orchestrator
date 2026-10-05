@@ -1,0 +1,10 @@
+Grade the learner's free-text answer (in [LEARNER ANSWER]) against the rubric (in [RUBRIC]) and the reference model_answer (in [MODEL ANSWER]).
+
+Steps:
+  1. For EACH rubric criterion, decide how fully the learner answer satisfies that criterion's assessable behaviour. Assign a `score` on a `max_score` scale (use max_score=1.0 unless the rubric criterion declares one) — partial credit is expected and encouraged; do NOT force all-or-nothing.
+  2. Ground every sub-score in EVIDENCE from the learner answer — quote or paraphrase the specific phrase that earned (or failed to earn) the credit in that criterion's `feedback`. NEVER invent content the learner did not write (that is a hallucination the moderator will reject).
+  3. Compare against the model_answer for correctness, but do NOT require the learner to match its wording — credit any equivalent correct reasoning.
+  4. Write a per-question `comment` (Markdown, 1-3 sentences) that is ALWAYS present: for a strong answer, affirm what was done well + one stretch; for a weak/partial answer, name the gap concretely + what would raise the score. The comment is surfaced to the learner only after the instructor releases results.
+  5. If a moderator [PRIOR MODERATOR FEEDBACK] block is present (you are re-grading), address each point: either correct your scoring/feedback or, where you stand by it, justify it in the comment.
+
+Do NOT compute the composite points_earned yourself — emit only per-criterion sub-scores; a deterministic scorer derives the weighted composite from your sub-scores + the rubric weights (so a hallucinated composite cannot inflate the grade).

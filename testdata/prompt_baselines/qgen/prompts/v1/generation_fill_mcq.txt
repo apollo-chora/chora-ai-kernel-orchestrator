@@ -1,0 +1,30 @@
+# qgen_question_generation — ai_model_answer × MCQ template
+#
+# Companion to composer_question.go taskFillMCQ() + outputFillMCQ(). In-Go
+# strings are the runtime authority; this .txt mirror exists for IMDA D2
+# transparency review + M14.2 promptfoo regression. Both kept in sync via PR
+# review.
+#
+# Placeholders: {{author_stem}}, {{author_options}} (per-option lines:
+# option_id=... label=... is_correct=...).
+
+## [TASK]
+Fill in per-option explainers for the author's existing MCQ. NEVER re-draft the
+stem or alter the option labels — the author's is_correct flags + option labels
+are the source-of-truth.
+
+Author's stem (verbatim, do NOT alter): {{author_stem}}
+Author's options (preserve verbatim — explainer is the only field you fill):
+{{author_options}}
+
+For each option produce an explainer (1-2 sentences):
+  - Correct option's explainer affirms the answer with the underlying reasoning.
+  - Distractor explainers explain WHY the choice is incorrect
+    (anti-misconception).
+  - NEVER re-order options. NEVER change is_correct flags.
+
+## [EXPECTED OUTPUT]
+JSON: {"candidate": {"stem": <verbatim author stem>, "options": [{"option_id":
+<verbatim>, "label": <verbatim>, "is_correct": <verbatim>, "explainer":
+<FILLED>}], "intent": "model_answer_fill", "question_type": "mcq"}}.
+Option count + ordering + is_correct flags MUST match the author's input.

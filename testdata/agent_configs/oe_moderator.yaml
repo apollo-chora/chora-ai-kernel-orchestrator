@@ -1,0 +1,18 @@
+# oe_moderator — per-sub-agent model + prompt config (ADR-172 §D2).
+#
+# AGENT-DRIVEN tiering (mirrors qgen_critic, CR qgen 2026-06-01): the moderator
+# is a single tool-free JUDGE over the evaluator's score+rationale+rubric —
+# accept | reject+feedback for rubric fidelity, hallucination, internal
+# consistency. It does NOT re-grade. Like qgen_critic it is the CHEAP text tier
+# (a fast accept/reject + feedback judge over one structured input). It sends
+# primary_model as the gateway logical_model_id + fallback_models as the
+# agent-declared fallback chain; the gateway HONOURS it.
+#
+#   CHEAP = moderator → gemini-3.5-flash → gemini-2.5-flash
+agent: oe_moderator
+sub_agents:
+  moderator:
+    tier: cheap
+    primary_model: gemini-3.5-flash
+    fallback_models: [gemini-2.5-flash]
+    prompt_version: v1
