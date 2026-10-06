@@ -1,12 +1,13 @@
 """Tests for ``NatsPublisher`` — the async wrapper used by the AI Kernel
 outbox dispatcher to push messages to NATS JetStream.
 
-Replaces the ``GoogleCloudPubSubPublisher`` tests. The wire contract is
-unchanged: the envelope is encoded as message headers (event_id,
-idempotency_key, tenant_id, gcid, occurred_at, traceparent, tracestate,
-source_project, source_service, schema_version) so subscribers can filter
-without parsing the payload, and the destination is the row's ``topic``
-(a NATS subject).
+Replaces the ``GoogleCloudPubSubPublisher`` tests. The envelope is encoded as
+message headers under the canonical names the Go eventbus reads
+(``Chora-Event-Id``, ``Chora-Idempotency-Key``, ``Chora-Tenant-Id``,
+``Chora-Gcid``, ``Chora-Occurred-At``, ``Traceparent``, ``Tracestate``,
+``Chora-Source-Project``, ``Chora-Source-Service``, ``Chora-Schema-Version``)
+so subscribers can filter without parsing the payload, and the destination is
+the row's ``topic`` (a NATS subject).
 
 The JetStream context is injected (the ``js`` seam) so the tests run without
 a live NATS server.
@@ -117,16 +118,16 @@ class TestPublishOutboxRow:
 
         _, _, headers = js.published[0]
         for required in (
-            "event_id",
-            "idempotency_key",
-            "tenant_id",
-            "gcid",
-            "occurred_at",
-            "traceparent",
-            "tracestate",
-            "source_project",
-            "source_service",
-            "schema_version",
+            "Chora-Event-Id",
+            "Chora-Idempotency-Key",
+            "Chora-Tenant-Id",
+            "Chora-Gcid",
+            "Chora-Occurred-At",
+            "Traceparent",
+            "Tracestate",
+            "Chora-Source-Project",
+            "Chora-Source-Service",
+            "Chora-Schema-Version",
         ):
             assert required in headers, f"header missing: {required}"
 
@@ -141,7 +142,7 @@ class TestPublishOutboxRow:
         await pub.publish(_row(tenant_id="01970000-0000-7000-8000-000000000001"))
         await pub.publish(_row(tenant_id="01970000-0000-7000-8000-000000000002"))
 
-        tenants = [h["tenant_id"] for _, _, h in js.published]
+        tenants = [h["Chora-Tenant-Id"] for _, _, h in js.published]
         assert tenants == [
             "01970000-0000-7000-8000-000000000001",
             "01970000-0000-7000-8000-000000000002",

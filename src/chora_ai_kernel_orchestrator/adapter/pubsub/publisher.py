@@ -27,6 +27,41 @@ logger = logging.getLogger(__name__)
 # defensively (mirrors the Pub/Sub reserved-attrs strip).
 _RESERVED_HEADER_KEYS = frozenset({"subject", "reply", "sid"})
 
+# The envelope dict is snake_case; the Go eventbus (chora-common/eventbus
+# `envelopeFromHeaders`) reads canonical `Chora-*` header names and rejects a
+# message whose envelope it cannot reconstruct — dead-lettering it before the
+# handler ever runs. Publish the canonical names so Go subscribers can read the
+# envelope. Keys absent from this map are forwarded verbatim.
+_ENVELOPE_HEADER_NAMES = {
+    "event_id": "Chora-Event-Id",
+    "idempotency_key": "Chora-Idempotency-Key",
+    "tenant_id": "Chora-Tenant-Id",
+    "gcid": "Chora-Gcid",
+    "source_service": "Chora-Source-Service",
+    "source_project": "Chora-Source-Project",
+    "correlation_id": "Chora-Correlation-Id",
+    "causation_id": "Chora-Causation-Id",
+    "chora_imda_dimension": "Chora-Imda-Dimension",
+    "imda_lifecycle_stage": "Chora-Imda-Lifecycle-Stage",
+    "schema_version": "Chora-Schema-Version",
+    "occurred_at": "Chora-Occurred-At",
+    "published_at": "Chora-Published-At",
+    "traceparent": "Traceparent",
+    "tracestate": "Tracestate",
+}
+
+
+def envelope_headers(envelope: Any) -> dict[str, str]:
+    """Map an outbox envelope dict onto the canonical NATS header names the Go
+    eventbus reads. Unknown keys are forwarded verbatim; reserved keys dropped."""
+    headers: dict[str, str] = {}
+    for key, value in dict(envelope or {}).items():
+        name = str(key)
+        if name in _RESERVED_HEADER_KEYS:
+            continue
+        headers[_ENVELOPE_HEADER_NAMES.get(name, name)] = str(value)
+    return headers
+
 
 class NatsPublisher:
     """Publishes a single ``OutboxRow`` to its NATS subject."""
@@ -65,7 +100,7 @@ class NatsPublisher:
         the dispatcher can drive retry/deadletter logic."""
         js = await self._ensure_js()
         subject = f"{self._subject_prefix}{row.topic}" if self._subject_prefix else row.topic
-        headers = {str(k): str(v) for k, v in row.envelope.items() if k not in _RESERVED_HEADER_KEYS}
+        headers = envelope_headers(row.envelope)
         ack = await js.publish(subject, row.payload, headers=headers)
         return str(getattr(ack, "seq", ""))
 
