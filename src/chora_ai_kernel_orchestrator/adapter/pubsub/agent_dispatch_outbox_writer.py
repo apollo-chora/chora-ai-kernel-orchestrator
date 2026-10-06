@@ -35,6 +35,17 @@ ON CONFLICT (idempotency_key) DO NOTHING
 """
 
 
+def _synthetic_traceparent(event_id: str) -> str:
+    """A valid W3C traceparent derived from an event id, for a dispatch this
+    service generates rather than receives (mirrors
+    ``orchestrators.single_agent_workflow.synthetic_traceparent``; duplicated
+    here to avoid an adapter → orchestrator import cycle)."""
+    hexid = (event_id or "").replace("-", "")
+    trace_id = (hexid + "0" * 32)[:32]
+    parent_id = (hexid + "0" * 16)[:16]
+    return f"00-{trace_id}-{parent_id}-01"
+
+
 class AgentDispatchOutboxWriter:
     """INSERTs a dispatch request row on the caller's open transaction."""
 
@@ -72,6 +83,12 @@ class AgentDispatchOutboxWriter:
         # Stamp the writer's provenance last so a caller cannot fabricate it.
         envelope["source_project"] = self._source_project
         envelope["source_service"] = self._source_service
+        # The Go eventbus dead-letters a message whose envelope it cannot
+        # rebuild, and traceparent is mandatory there. A dispatch is generated
+        # here, not received, so it carries no upstream trace context — derive
+        # a valid one from the event id rather than shipping an empty field.
+        if not str(envelope.get("traceparent") or "").strip():
+            envelope["traceparent"] = _synthetic_traceparent(str(envelope.get("event_id") or ""))
         row_id = str(uuid4())
         params = {
             "id": row_id,

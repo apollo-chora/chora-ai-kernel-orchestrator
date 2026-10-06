@@ -53,13 +53,21 @@ _ENVELOPE_HEADER_NAMES = {
 
 def envelope_headers(envelope: Any) -> dict[str, str]:
     """Map an outbox envelope dict onto the canonical NATS header names the Go
-    eventbus reads. Unknown keys are forwarded verbatim; reserved keys dropped."""
+    eventbus reads. Unknown keys are forwarded verbatim; reserved keys dropped.
+
+    ``traceparent`` is mandatory in that envelope contract, and a message
+    without one is dead-lettered before the handler runs, so synthesize a valid
+    W3C traceparent from the event id when the row carries none.
+    """
     headers: dict[str, str] = {}
     for key, value in dict(envelope or {}).items():
         name = str(key)
         if name in _RESERVED_HEADER_KEYS:
             continue
         headers[_ENVELOPE_HEADER_NAMES.get(name, name)] = str(value)
+    if not headers.get("Traceparent", "").strip():
+        hexid = headers.get("Chora-Event-Id", "").replace("-", "")
+        headers["Traceparent"] = f"00-{(hexid + '0' * 32)[:32]}-{(hexid + '0' * 16)[:16]}-01"
     return headers
 
 
