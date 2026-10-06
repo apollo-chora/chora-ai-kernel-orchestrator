@@ -9,7 +9,8 @@ unchanged from the StreamingPull loop it replaces.
 Per [[secrets-and-env]] the subject + NATS URL come from env vars:
 
     NATS_URL                  — NATS connection URL (required)
-    QGEN_CREW_SUBSCRIPTION    — NATS subject (default: the canonical started.v1)
+    QGEN_CREW_SUBSCRIPTION    — NATS subject (default: the canonical
+                                 chora.creation.ai_assist.started.v2)
 
 Wire site: ``main.py`` lifespan starts the loop alongside the OutboxDispatcher
 task. On shutdown both halt cleanly.
@@ -25,7 +26,12 @@ from chora_ai_kernel_orchestrator.adapter.pubsub.nats import NatsConsumerLoop
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SUBSCRIPTION = "chora-ai-kernel-orchestrator.qgen-crew-ai-assist-started-v2"
+# Canonical inbound subject per chora-contracts/asyncapi/creation/
+# ai-assist-started-v2.yaml (ADR-195 WS7 D7): chora-creation publishes the
+# job-started event on ``chora.creation.ai_assist.started.v2``. The legacy
+# Pub/Sub subscription id is NOT a NATS subject (the live JetStream stream
+# captures only ``chora.>``), so a consumer bound to it never receives a job.
+DEFAULT_SUBSCRIPTION = "chora.creation.ai_assist.started.v2"
 
 ENV_NATS_URL = "NATS_URL"
 ENV_QGEN_CREW_SUBSCRIPTION = "QGEN_CREW_SUBSCRIPTION"

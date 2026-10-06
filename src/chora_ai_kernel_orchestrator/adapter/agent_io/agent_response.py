@@ -37,3 +37,10 @@ class AgentExecutorResponse:
     error_message: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    # The concrete model the agent's terminal JSON reported for the hop
+    # (top-level ``model_id`` — the same value the OE evaluator's
+    # ``grading_model_id`` and the token_usage lane carry). Rides the
+    # pipeline_trace rows so the AgentDecisionLog outbox writer can stamp
+    # proto field 6; chora-observability prices tokens per model, so a
+    # blank here zeroes cost attribution.
+    model_id: str = ""

@@ -136,3 +136,38 @@ def test_map_response_split_survives_scored_unwrap() -> None:
     assert resp.input_tokens == 500
     assert resp.output_tokens == 60
     assert resp.tokens_consumed_total == 560
+
+
+def test_map_response_extracts_model_id_from_top_level() -> None:
+    """The agent's top-level ``model_id`` (the concrete model that produced
+    the hop) rides AgentExecutorResponse so the qgen_crew nodes can stamp it
+    on the pipeline_trace rows → the AgentDecisionLog proto field 6.
+    chora-observability prices the per-hop token counts per model, so a
+    dropped model_id zeroes the cost attribution."""
+    terminal_text = json.dumps(
+        {
+            "stem": "x",
+            "question_type": "mcq",
+            "model_id": "gemini-3.1-pro-preview",
+            "input_tokens": 100,
+            "output_tokens": 20,
+        }
+    )
+    resp = exe.map_agent_response(
+        execution_id="exec-1",
+        terminal_text=terminal_text,
+        agent_role=exe.ROLE_QGEN_QUESTION,
+    )
+    assert resp.model_id == "gemini-3.1-pro-preview"
+
+
+def test_map_response_model_id_defaults_empty() -> None:
+    """No model_id in the agent JSON → blank (proto3-default-omit downstream;
+    the consumer keeps the zero sentinel rather than a fabricated model)."""
+    terminal_text = json.dumps({"stem": "x", "question_type": "mcq"})
+    resp = exe.map_agent_response(
+        execution_id="exec-1",
+        terminal_text=terminal_text,
+        agent_role=exe.ROLE_QGEN_QUESTION,
+    )
+    assert resp.model_id == ""

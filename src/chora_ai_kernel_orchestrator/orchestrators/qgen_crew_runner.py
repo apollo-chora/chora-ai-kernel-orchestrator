@@ -457,6 +457,9 @@ class _AgentDecisionLogEmitter(Protocol):
         must be segregated from production dashboards.
       - ``adapter_version`` — LoRA adapter version used by this decision
         (per gemma-lora-tenant SKILL). Empty string when base model used.
+      - ``model_id`` — the concrete model that produced the decision (proto
+        field 6, matches token_usage.model_id). chora-observability prices the
+        token counts per model, so a blank here zeroes the cost attribution.
       - ``guardrail_outcome`` — Cloud Model Armor verdict (``pass`` |
         ``block`` | ``redact``). Empty string when guardrails not
         invoked.
@@ -487,6 +490,7 @@ class _AgentDecisionLogEmitter(Protocol):
         is_resume: bool = False,
         is_eval_run: bool = False,
         adapter_version: str = "",
+        model_id: str = "",
         guardrail_outcome: str = "",
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
@@ -1403,6 +1407,12 @@ async def _emit_qgen_agent_decisions(
     # rows as `adapter_version`.
     adapter_version = _extract_adapter_version(pipeline_trace)
 
+    # The concrete model that produced the decision (proto field 6) — the
+    # agent reports it per LLM hop; the graph stamps it on the trace rows.
+    # chora-observability prices the per-hop token counts per model, so a
+    # blank here zeroes the cost attribution.
+    model_id = _extract_model_id(pipeline_trace)
+
     # question_type ("mcq" | "oe") rides every qgen event's attributes so
     # the O+ consumer can split tiles by content type. By the time the
     # terminal emits, _validate has already guaranteed it is one of
@@ -1527,6 +1537,7 @@ async def _emit_qgen_agent_decisions(
                 is_resume=False,
                 is_eval_run=is_eval_run,
                 adapter_version=adapter_version,
+                model_id=model_id,
                 guardrail_outcome=guardrail_outcome,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
@@ -2401,6 +2412,24 @@ def _extract_adapter_version(pipeline_trace: list[dict[str, Any]]) -> str:
         adapter = str(row.get("adapter_version") or "").strip()
         if adapter:
             return adapter
+    return ""
+
+
+def _extract_model_id(pipeline_trace: list[dict[str, Any]]) -> str:
+    """Read the first non-empty ``model_id`` stamped on an LLM-hop trace
+    row (the concrete model the agent reported for the hop — proto field 6
+    of AgentDecisionLogged). Empty string when the agent did not report
+    one (chora-observability then prices the tokens as unattributed).
+    """
+    for row in pipeline_trace:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if name not in _LLM_HOP_TRACE_NAMES:
+            continue
+        model = str(row.get("model_id") or "").strip()
+        if model:
+            return model
     return ""
 
 

@@ -161,6 +161,7 @@ class AgentDecisionLogOutboxWriter:
         is_resume: bool = False,
         is_eval_run: bool = False,
         adapter_version: str = "",
+        model_id: str = "",
         guardrail_outcome: str = "",
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
@@ -194,6 +195,10 @@ class AgentDecisionLogOutboxWriter:
           - ``crew_id`` — UUIDv7 of the crew instance / orchestration.
           - ``is_resume`` / ``is_eval_run`` — orchestration-state flags.
           - ``adapter_version`` — LoRA adapter (empty when base model).
+          - ``model_id`` — the concrete model that produced the decision
+            (proto field 6, matches token_usage.model_id). chora-observability
+            prices the token counts per model, so a blank here zeroes the
+            cost attribution.
           - ``guardrail_outcome`` — Cloud Model Armor verdict.
           - ``prompt_tokens`` / ``completion_tokens`` / ``cached_tokens``
             — gen_ai.usage.* counts.
@@ -261,6 +266,10 @@ class AgentDecisionLogOutboxWriter:
             "is_resume": is_resume,
             "is_eval_run": is_eval_run,
             "adapter_version": adapter_version,
+            # The concrete model that produced the decision (proto field 6).
+            # The encoder emits it verbatim; blank → proto3-default-omit and
+            # chora-observability's per-model cost attribution reads zero.
+            "model_id": model_id,
             "guardrail_outcome": guardrail_outcome,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,

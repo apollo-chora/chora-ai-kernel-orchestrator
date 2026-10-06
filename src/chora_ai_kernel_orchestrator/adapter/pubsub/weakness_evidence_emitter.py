@@ -86,6 +86,7 @@ class _AgentDecisionEmitter(Protocol):
         tracestate: str = "",
         crew_name: str = "",
         crew_id: str = "",
+        model_id: str = "",
         guardrail_outcome: str = "",
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
@@ -155,9 +156,11 @@ class WeaknessEvidenceEmitter:
         if not occurred_at:
             occurred_at = _dt.datetime.now(tz=_dt.UTC).isoformat()
 
-        # The D1 agent_decision proto has no model field; ride the diagnoser's
-        # model as a namespaced field-21 attribute so O+ can attribute the
-        # decision without decoding the D2 analyzed event.
+        # The diagnoser's model rides proto field 6 (model_id — the concrete
+        # model that produced the decision) so chora-observability can price
+        # the token counts per model. It ALSO keeps riding the namespaced
+        # field-21 attribute so O+ can attribute the decision without decoding
+        # the D2 analyzed event.
         model = (model_used or "").strip()
         prompt_conditions = {"model_used": model} if model else {}
 
@@ -180,6 +183,7 @@ class WeaknessEvidenceEmitter:
             tracestate=tracestate,
             crew_name=CREW_NAME_WEAKNESS,
             crew_id=upload_id,
+            model_id=model,
             guardrail_outcome=_guardrail_outcome(input_decision, output_decision),
             prompt_tokens=_coerce_int(body.get("input_token_count")),
             completion_tokens=_coerce_int(body.get("output_token_count")),

@@ -147,6 +147,14 @@ def map_agent_response(
     # criterion reads real numbers instead of 0.
     input_tokens = int(raw.get("input_tokens", 0) or 0)
     output_tokens = int(raw.get("output_tokens", 0) or 0)
+    # The concrete model the agent reported for the hop (top-level
+    # ``model_id`` — the same wire key the OE evaluator captures as
+    # ``grading_model_id``). Captured BEFORE the candidate-unwrap branches
+    # reassign ``raw`` to the inner candidate, which does not carry the
+    # sibling model field. Rides AgentExecutorResponse → the pipeline_trace
+    # rows → the AgentDecisionLog proto field 6 (chora-observability prices
+    # the per-hop token counts per model).
+    model_id = str(raw.get("model_id") or "").strip()
 
     # Unwrap qgen_question evaluation output:
     # {"scored": {"candidate": {...}, ...}} → candidate dict (preserve
@@ -205,6 +213,7 @@ def map_agent_response(
         final_state="EXECUTION_FINAL_STATE_SUCCESS",
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        model_id=model_id,
     )
 
 

@@ -434,11 +434,31 @@ class OEGradingCrewRunner:
             ),
         ]
 
+        # The concrete model each agent reported for its hop (proto field 6 —
+        # chora-observability prices the per-hop token counts per model, so a
+        # blank here zeroes the cost attribution). Evaluator: the grading
+        # model off the recorded grades (assess_summary-only submissions fall
+        # back to the overall-comment model). Moderator: the last moderation
+        # hop's model off the terminal state.
+        evaluator_model_id = next(
+            (
+                str(getattr(g, "grading_model_id", "") or "")
+                for g in graded
+                if str(getattr(g, "grading_model_id", "") or "")
+            ),
+            "",
+        ) or str(terminal.get("overall_comment_model_id") or "")
+        mod_result = terminal.get("moderation_result")
+        moderator_model_id = str(getattr(mod_result, "model_id", "") or "") if mod_result is not None else ""
+
         for agid, decision, notes, hops in specs:
             prompt_tokens, completion_tokens, cached_tokens = _oe_aggregate_tokens(pipeline_trace, hops)
             # Select the agent's condition discriminants (ADR-197 M-A.3) so each
             # durable record carries the SAME map the live span stamped.
             prompt_conditions = evaluator_conditions if agid == AGID_OE_EVALUATOR else moderator_conditions
+            # The concrete model that produced THIS agent's decision (proto
+            # field 6) — see the extraction above.
+            model_id = evaluator_model_id if agid == AGID_OE_EVALUATOR else moderator_model_id
             # Per-agent marker span: give THIS agent's decision a DISTINCT span
             # id within the shared run trace so the O+ /o/agents 'View in Cloud
             # Trace' deep-link lands on oe_evaluator / oe_moderator individually
@@ -485,6 +505,7 @@ class OEGradingCrewRunner:
                     is_resume=False,
                     is_eval_run=False,
                     adapter_version="",
+                    model_id=model_id,
                     guardrail_outcome=guardrail_outcome,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,

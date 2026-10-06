@@ -83,6 +83,9 @@ class ModerationResult:
     accepted: bool
     moderation_notes: str = ""
     suggested_revisions: list[str] = field(default_factory=list)
+    # The concrete model the moderator reported for the hop (proto field 6
+    # of AgentDecisionLogged — chora-observability prices tokens per model).
+    model_id: str = ""
 
 
 @dataclass(frozen=True)

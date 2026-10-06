@@ -281,6 +281,7 @@ def _append_trace(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     engine_resource: str = "",
+    model_id: str = "",
     notes: str = "",
     candidate_json: str | None = None,
     accepted: bool | None = None,
@@ -301,6 +302,11 @@ def _append_trace(
     — WITHOUT a new event field or proto change. These keys are additive and
     opaque inside ``pipeline_trace_json``; the FE trace widget ignores unknown
     keys. ``critique_notes`` is already carried in ``notes`` (not duplicated).
+
+    ``model_id`` — the concrete model the agent reported for the hop — rides
+    the same additive-key convention so the AgentDecisionLog outbox writer can
+    stamp proto field 6 (chora-observability prices the per-hop token counts
+    per model).
     """
     existing = list(state.get("pipeline_trace") or [])
     existing.append(
@@ -311,6 +317,7 @@ def _append_trace(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             engine_resource=engine_resource,
+            model_id=model_id,
             notes=notes,
             candidate_json=candidate_json,
             accepted=accepted,
@@ -330,6 +337,7 @@ def _trace_row(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     engine_resource: str = "",
+    model_id: str = "",
     notes: str = "",
     candidate_json: str | None = None,
     accepted: bool | None = None,
@@ -362,6 +370,8 @@ def _trace_row(
         entry["output_tokens"] = output_tokens
     if engine_resource:
         entry["engine_resource"] = engine_resource
+    if model_id:
+        entry["model_id"] = model_id
     if notes:
         entry["notes"] = notes
     if candidate_json is not None:
@@ -660,6 +670,7 @@ async def generate_node(state: QGenCrewState, *, executor: _ExecutorLike) -> dic
                 attempt=attempt,
                 input_tokens=gen_input_tokens,
                 output_tokens=gen_output_tokens,
+                model_id=resp.model_id,
                 notes=notes,
                 started_at=started_at,
                 completed_at=completed_at,
@@ -691,6 +702,7 @@ async def generate_node(state: QGenCrewState, *, executor: _ExecutorLike) -> dic
             attempt=attempt,
             input_tokens=gen_input_tokens,
             output_tokens=gen_output_tokens,
+            model_id=resp.model_id,
             notes="candidate produced",
             started_at=started_at,
             completed_at=completed_at,
@@ -887,6 +899,7 @@ async def critique_node(state: QGenCrewState, *, executor: _ExecutorLike) -> dic
             # baseline; output is now the REAL value, was implicitly absent).
             input_tokens=_input_tokens_of(resp),
             output_tokens=int(getattr(resp, "output_tokens", 0) or 0),
+            model_id=resp.model_id,
             notes=result.critique_notes[:200] if result.critique_notes else "",
             started_at=started_at,
             completed_at=completed_at,

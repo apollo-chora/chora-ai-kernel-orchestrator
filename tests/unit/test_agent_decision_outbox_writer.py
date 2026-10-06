@@ -147,6 +147,7 @@ def _decode_proto_payload(payload: bytes) -> dict[str, Any]:
         "decision_id": s(2),
         "invocation_id": s(3),
         "agid": s(4),
+        "model_id": s(6),
         "decision_kind": i(7),
         "output_summary": s(9),
         "crew_name": s(12),
@@ -346,6 +347,61 @@ class TestEmit:
         assert d["prompt_tokens"] == 180
         assert d["completion_tokens"] == 100
         assert d["cached_tokens"] == 15
+
+    @pytest.mark.asyncio
+    async def test_payload_proto_sets_model_id_field_6(self) -> None:
+        """The concrete model that produced the decision lands in proto
+        field 6 (model_id — matches token_usage.model_id) so
+        chora-observability can price the per-hop token counts per model.
+        A blank model_id here zeroes the cost attribution."""
+        conn = _FakeAsyncConnection()
+        w = AgentDecisionLogOutboxWriter(
+            conn=conn,
+            source_project="chora-489812",
+        )
+        await w.emit(
+            assist_id="a-1",
+            agid="qgen_question",
+            tenant_id="t-1",
+            gcid="g-1",
+            decision="accepted",
+            attempt_count=1,
+            max_retries=3,
+            critic_notes="",
+            quality_warning=False,
+            chora_imda_dimension="accountability",
+            occurred_at="2026-05-17T15:30:00+00:00",
+            model_id="gemini-3.1-pro-preview",
+        )
+        params = _decode_row(conn.cur.executed[0])
+        d = _decode_proto_payload(params["payload"])
+        assert d["model_id"] == "gemini-3.1-pro-preview"
+
+    @pytest.mark.asyncio
+    async def test_payload_proto_model_id_omitted_when_blank(self) -> None:
+        """No model reported → field 6 is proto3-default-omitted (the Go
+        consumer keeps the zero sentinel rather than a fabricated model)."""
+        conn = _FakeAsyncConnection()
+        w = AgentDecisionLogOutboxWriter(
+            conn=conn,
+            source_project="chora-489812",
+        )
+        await w.emit(
+            assist_id="a-1",
+            agid="qgen_question",
+            tenant_id="t-1",
+            gcid="g-1",
+            decision="accepted",
+            attempt_count=1,
+            max_retries=3,
+            critic_notes="",
+            quality_warning=False,
+            chora_imda_dimension="accountability",
+            occurred_at="2026-05-17T15:30:00+00:00",
+        )
+        params = _decode_row(conn.cur.executed[0])
+        d = _decode_proto_payload(params["payload"])
+        assert d["model_id"] == ""
 
     @pytest.mark.asyncio
     async def test_payload_proto_carries_citation_hashes(self) -> None:

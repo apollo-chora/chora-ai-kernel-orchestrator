@@ -32,12 +32,20 @@ ENV_NATS_URL = "NATS_URL"
 ENV_COMPLETION_SUBSCRIPTIONS = "AGENT_COMPLETION_SUBSCRIPTIONS"
 ENV_CALLBACK_TIMEOUT = "AGENT_COMPLETION_CALLBACK_TIMEOUT_SECONDS"
 
-_SUBJECT_PREFIX = "chora-ai-kernel-orchestrator.agent-dispatch"
+# Canonical completion topic per agent role (ADR-253 D2/D5): the ADK agents
+# publish their completion on ``chora.ai_kernel.agent_dispatch.{role}_completed.v1``
+# (chora-adk-common/agentdispatch/dispatch.go §CompletionTopic) — the same
+# subject family the request side produces to. The legacy Pub/Sub subscription
+# id (``chora-ai-kernel-orchestrator.agent-dispatch-{role}-completed``) is NOT
+# a NATS subject: the live JetStream stream captures only ``chora.>``, so a
+# consumer bound to it can never receive a completion (audit F22/F23).
+_SUBJECT_PREFIX = "chora.ai_kernel.agent_dispatch"
 
 # Per-message callback wait. TWO CALLERS, and the justification differs:
 #
-#   * the COMPLETION side (this loop's own subjects, agent-dispatch-*-
-#     completed). A resume is checkpoint-read → supersteps → checkpoint-write,
+#   * the COMPLETION side (this loop's own subjects, the
+#     ``chora.ai_kernel.agent_dispatch.{role}_completed.v1`` family). A resume
+#     is checkpoint-read → supersteps → checkpoint-write,
 #     with no model call in it. 60s is generous for that and still short enough
 #     that a wedged resume surfaces as a redelivery rather than a held message.
 #   * the REQUEST side of the generic single-agent lanes, which reuse this loop
@@ -59,7 +67,7 @@ def completion_subscription_name(agent_role: str) -> str:
     role = (agent_role or "").strip()
     if not role:
         raise ValueError("completion_subscription_name: agent_role required")
-    return f"{_SUBJECT_PREFIX}-{role.replace('_', '-')}-completed"
+    return f"{_SUBJECT_PREFIX}.{role}_completed.v1"
 
 
 class _SubscriberLike(Protocol):

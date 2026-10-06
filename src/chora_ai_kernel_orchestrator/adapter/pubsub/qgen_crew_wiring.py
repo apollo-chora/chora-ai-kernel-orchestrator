@@ -40,7 +40,7 @@ lifespan):
                                   envelope's source_project)
     QGEN_CREW_SUBSCRIPTION        full subscription resource (or short name;
                                   default
-                                  chora-ai-kernel-orchestrator.qgen-crew-ai-assist-started)
+                                  chora.creation.ai_assist.started.v2)
     CHORA_MODELARMOR_PROJECT      Model Armor templates project
                                   (ModelArmorGuardrailPort.from_env)
     CHORA_MODELARMOR_LOCATION     Model Armor templates location

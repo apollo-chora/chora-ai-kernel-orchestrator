@@ -15,6 +15,7 @@ import pytest
 
 from chora_ai_kernel_orchestrator.domain.oe_grading_crew.state import (
     GradedOEQuestion,
+    ModerationResult,
 )
 from chora_ai_kernel_orchestrator.orchestrators.oe_grading_crew_runner import (
     OEGradingCrewRunner,
@@ -303,6 +304,26 @@ async def test_handle_requested_flagged_grade_yields_warning_decisions() -> None
     assert by_agid["oe_moderator"]["decision"] == "completed_with_warning"
     assert by_agid["oe_evaluator"]["quality_warning"] is True
     assert by_agid["oe_moderator"]["quality_warning"] is True
+
+
+@pytest.mark.asyncio
+async def test_oe_agent_decisions_carry_model_id() -> None:
+    """The concrete model each agent reported lands in the emit's model_id
+    (proto field 6) so chora-observability can price the per-hop token
+    counts per model. Evaluator: the grading model off the recorded grades;
+    moderator: the moderation hop's model off the terminal state."""
+    t = _terminal_with_trace()
+    t["moderation_result"] = ModerationResult(accepted=True, model_id="gemini-3-pro")
+    graph = _FakeGraph(terminal=t)
+    pub = _FakePublisher()
+    adl = _FakeAgentDecisionLogEmitter()
+    runner = OEGradingCrewRunner(graph=graph, publisher=pub, agent_decision_emitter=adl)
+
+    await runner.handle_requested(_event())
+
+    by_agid = {e["agid"]: e for e in adl.emitted}
+    assert by_agid["oe_evaluator"]["model_id"] == "gemini-3.1-pro-preview"
+    assert by_agid["oe_moderator"]["model_id"] == "gemini-3-pro"
 
 
 @pytest.mark.asyncio

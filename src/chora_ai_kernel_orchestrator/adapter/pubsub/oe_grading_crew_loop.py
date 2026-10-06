@@ -22,7 +22,13 @@ from chora_ai_kernel_orchestrator.adapter.pubsub.nats import NatsConsumerLoop
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SUBSCRIPTION = "chora-ai-kernel-orchestrator.oe-grading-submission-requested"
+# Canonical inbound subject per chora-contracts/proto/events/delivery/
+# grading.proto §GradingSubmissionRequested: chora-delivery publishes the
+# grading request on ``chora.delivery.grading.submission_requested.v1`` for the
+# oe_grading_crew. The legacy Pub/Sub subscription id is NOT a NATS subject
+# (the live JetStream stream captures only ``chora.>``), so a consumer bound
+# to it never receives a submission.
+DEFAULT_SUBSCRIPTION = "chora.delivery.grading.submission_requested.v1"
 
 ENV_NATS_URL = "NATS_URL"
 ENV_OE_CREW_SUBSCRIPTION = "OE_GRADING_CREW_SUBSCRIPTION"

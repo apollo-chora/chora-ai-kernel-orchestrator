@@ -461,6 +461,7 @@ async def moderate_node(state: OEGradingState, *, executor: _ExecutorLike) -> di
         # moderation_notes fallback for older/alternate emissions.
         moderation_notes=str(raw.get("feedback") or raw.get("moderation_notes") or ""),
         suggested_revisions=list(raw.get("suggested_revisions", []) or []),
+        model_id=str(raw.get("model_id") or ""),
     )
     return {
         "moderation_result": moderation,

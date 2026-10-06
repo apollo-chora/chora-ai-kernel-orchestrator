@@ -47,6 +47,9 @@ from chora_ai_kernel_orchestrator.orchestrators.qgen_crew_runner import (
 class _FakeExecutor:
     responses: dict[str, list[str]]
     calls: list[dict[str, Any]] = field(default_factory=list)
+    # The concrete model the agent reported for the hop (proto field 6) —
+    # the real executor's map_agent_response lifts it off the agent JSON.
+    model_id: str = ""
 
     async def execute(
         self,
@@ -72,6 +75,7 @@ class _FakeExecutor:
             tokens_consumed_total=42,
             cost_micros_total=100,
             final_state="EXECUTION_FINAL_STATE_SUCCESS",
+            model_id=self.model_id,
         )
 
 
@@ -705,6 +709,53 @@ async def test_handle_started_emits_agent_decision_log_on_accepted() -> None:
     assert by_agid["qgen_critic"]["crew_name"] == MCQ_AI_ASSIST_CREW_NAME
     # Terminal publish still fires (additive).
     assert len(publisher.completed) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_decision_carries_model_id_from_agent_report() -> None:
+    """The concrete model the agent reported for the hop rides the
+    pipeline_trace rows → the emit's model_id (proto field 6) so
+    chora-observability can price the per-hop token counts per model.
+    A blank model_id zeroes the cost attribution."""
+    executor = _FakeExecutor(
+        responses={
+            ROLE_GENERATE: [_good_oe_payload()],
+            ROLE_CRITIQUE: [_critic_accept()],
+        },
+        model_id="gemini-3.1-pro-preview",
+    )
+    guardrail = _FakeGuardrail()
+    publisher = _FakePublisher()
+    adl_emitter = _FakeAgentDecisionLogEmitter()
+    graph = build_qgen_crew_graph(executor=executor, guardrail=guardrail, checkpointer=MemorySaver())
+    runner = QGenCrewRunner(graph=graph, publisher=publisher, agent_decision_emitter=adl_emitter)
+
+    await runner.handle_started(_started_event())
+
+    assert len(adl_emitter.emitted) == 2
+    assert all(e["model_id"] == "gemini-3.1-pro-preview" for e in adl_emitter.emitted)
+
+
+@pytest.mark.asyncio
+async def test_agent_decision_model_id_defaults_empty() -> None:
+    """No model reported → blank model_id (proto3-default-omit downstream;
+    the consumer keeps the zero sentinel rather than a fabricated model)."""
+    executor = _FakeExecutor(
+        responses={
+            ROLE_GENERATE: [_good_oe_payload()],
+            ROLE_CRITIQUE: [_critic_accept()],
+        },
+    )
+    guardrail = _FakeGuardrail()
+    publisher = _FakePublisher()
+    adl_emitter = _FakeAgentDecisionLogEmitter()
+    graph = build_qgen_crew_graph(executor=executor, guardrail=guardrail, checkpointer=MemorySaver())
+    runner = QGenCrewRunner(graph=graph, publisher=publisher, agent_decision_emitter=adl_emitter)
+
+    await runner.handle_started(_started_event())
+
+    assert len(adl_emitter.emitted) == 2
+    assert all(e["model_id"] == "" for e in adl_emitter.emitted)
 
 
 @pytest.mark.asyncio

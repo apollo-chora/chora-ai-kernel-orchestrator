@@ -24,12 +24,8 @@ def test_the_default_subscription_is_derived_per_role(monkeypatch) -> None:
         completion_subscription_name,
     )
 
-    assert completion_subscription_name("oe_evaluate") == (
-        "chora-ai-kernel-orchestrator.agent-dispatch-oe-evaluate-completed"
-    )
-    assert completion_subscription_name("oe_moderate") == (
-        "chora-ai-kernel-orchestrator.agent-dispatch-oe-moderate-completed"
-    )
+    assert completion_subscription_name("oe_evaluate") == ("chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1")
+    assert completion_subscription_name("oe_moderate") == ("chora.ai_kernel.agent_dispatch.oe_moderate_completed.v1")
 
 
 def test_from_env_returns_none_without_nats_url(monkeypatch) -> None:
@@ -45,8 +41,8 @@ def test_from_env_builds_one_subscription_per_role(monkeypatch) -> None:
 
     assert loop is not None
     assert loop.subscriptions == [
-        "chora-ai-kernel-orchestrator.agent-dispatch-oe-evaluate-completed",
-        "chora-ai-kernel-orchestrator.agent-dispatch-oe-moderate-completed",
+        "chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1",
+        "chora.ai_kernel.agent_dispatch.oe_moderate_completed.v1",
     ]
 
 

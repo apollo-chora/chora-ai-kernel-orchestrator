@@ -113,9 +113,10 @@ async def test_guardrail_outcome_is_block_when_either_screen_blocked() -> None:
 
 @pytest.mark.asyncio
 async def test_model_used_rides_as_a_namespaced_prompt_condition_attribute() -> None:
-    # The D1 agent_decision proto has no model field; the diagnoser's model
-    # rides the field-21 attributes map as prompt_conditions.model_used so O+
-    # can attribute the decision without decoding the D2 event.
+    # The diagnoser's model rides BOTH proto field 6 (model_id — the concrete
+    # model, so chora-observability can price the tokens) AND the field-21
+    # attributes map as prompt_conditions.model_used so O+ can attribute the
+    # decision without decoding the D2 event.
     rec = _RecordingAgentDecisionEmitter()
     emitter = WeaknessEvidenceEmitter(agent_decision_emitter=rec)
 
@@ -125,6 +126,7 @@ async def test_model_used_rides_as_a_namespaced_prompt_condition_attribute() -> 
         output_decision="ALLOW",
         model_used="gemini-2.5-pro",
     )
+    assert rec.calls[0]["model_id"] == "gemini-2.5-pro"
     assert rec.calls[0]["prompt_conditions"]["model_used"] == "gemini-2.5-pro"
 
 
