@@ -162,6 +162,15 @@ class GcsImageUploadAdapter:
         access_key = self._access_key or os.getenv(ENV_S3_ACCESS_KEY, "").strip()
         secret_key = self._secret_key or os.getenv(ENV_S3_SECRET_KEY, "").strip()
         secure = self._secure
+        # The deployment sets S3_ENDPOINT with a scheme (`http://minio:9000`),
+        # which the Go objectstore accepts; the minio SDK wants a bare
+        # `host:port` and rejects the URL form inside BaseURL. Normalise here and
+        # let the scheme decide TLS when S3_SECURE is not set explicitly.
+        if "://" in endpoint:
+            scheme, _, hostport = endpoint.partition("://")
+            if secure is None:
+                secure = scheme.strip().lower() == "https"
+            endpoint = hostport.strip("/")
         if secure is None:
             secure = os.getenv(ENV_S3_SECURE, "").strip().lower() in _TRUTHY
         self._client = Minio(
