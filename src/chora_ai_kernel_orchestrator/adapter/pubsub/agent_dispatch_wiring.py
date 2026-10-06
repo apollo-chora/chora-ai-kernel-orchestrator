@@ -163,9 +163,17 @@ async def build_transactional_saver(
 
     conn = await open_saver_connection(dsn)
     inner = AsyncPostgresSaver(conn)
-    # The checkpoint tables are created by the shared saver's setup already;
-    # calling setup here is idempotent and makes a fresh database work.
-    await inner.setup()
+    # The checkpoint tables are normally pre-created by migration
+    # 0061_langgraph_checkpoint_tables. `setup()` issues
+    # `CREATE TABLE IF NOT EXISTS`, which PostgreSQL still refuses without
+    # CREATE on schema public even when the table already exists — and the app
+    # role holds USAGE only (the PG15+ default). So call setup() only when the
+    # tables are genuinely absent (a fresh, un-migrated database).
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT to_regclass('public.checkpoints')")
+        row = await cur.fetchone()
+    if row is None or row[0] is None:
+        await inner.setup()
     await conn.commit()
     saver = assemble_transactional_saver(
         inner=inner,
