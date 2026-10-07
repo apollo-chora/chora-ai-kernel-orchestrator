@@ -9,6 +9,8 @@ ADR-254 D12: a scene render is a qgen_render dispatch, the kennel only signs.)
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -137,7 +139,7 @@ async def test_gcs_upload_and_sign_writes_and_signs() -> None:
     # ADR-210 B2 — the canonical durable gs:// object path is returned.
     assert gs_uri == "gs://chora-ai-assist-images-dev/" + key
     # Presigned GET URL minted (7-day expiry).
-    assert client.signed == [(bucket, key, 604800)]
+    assert client.signed == [(bucket, key, timedelta(seconds=604800))]
 
 
 def test_gcs_from_env_none_when_unset(monkeypatch: Any) -> None:

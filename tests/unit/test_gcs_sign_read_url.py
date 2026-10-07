@@ -8,6 +8,8 @@ is taken from the URI, which may differ from the upload bucket).
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from dataclasses import dataclass, field
 
 import pytest
@@ -32,7 +34,7 @@ async def test_sign_read_url_signs_the_named_object() -> None:
     adapter = GcsImageUploadAdapter(bucket_name="chora-ai-assist-images-dev", client=client)
     url = await adapter.sign_read_url("gs://chora-ai-assist-images-dev/tenants/t/jobs/j/abc.png")
     assert url == "https://minio.local/chora-ai-assist-images-dev/tenants/t/jobs/j/abc.png?sig=abc"
-    assert client.signed == [("chora-ai-assist-images-dev", "tenants/t/jobs/j/abc.png", 604800)]
+    assert client.signed == [("chora-ai-assist-images-dev", "tenants/t/jobs/j/abc.png", timedelta(seconds=604800))]
 
 
 @pytest.mark.asyncio
@@ -40,7 +42,7 @@ async def test_sign_read_url_takes_the_bucket_from_the_uri() -> None:
     client = _FakeMinio()
     adapter = GcsImageUploadAdapter(bucket_name="upload-bucket", client=client)
     await adapter.sign_read_url("gs://other-bucket/k.png")
-    assert client.signed == [("other-bucket", "k.png", 604800)]
+    assert client.signed == [("other-bucket", "k.png", timedelta(seconds=604800))]
 
 
 @pytest.mark.asyncio
@@ -64,4 +66,4 @@ async def test_sign_read_url_accepts_the_s3_scheme_the_deployment_emits() -> Non
     url = await adapter.sign_read_url("s3://chora-ai-assist-images/tenants/t/jobs/j/abc.png")
 
     assert url == "https://minio.local/chora-ai-assist-images/tenants/t/jobs/j/abc.png?sig=abc"
-    assert client.signed == [("chora-ai-assist-images", "tenants/t/jobs/j/abc.png", 604800)]
+    assert client.signed == [("chora-ai-assist-images", "tenants/t/jobs/j/abc.png", timedelta(seconds=604800))]

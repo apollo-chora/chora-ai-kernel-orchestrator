@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import timedelta
 from io import BytesIO
 from typing import Any
 from uuid import uuid4
@@ -46,6 +47,9 @@ ENV_S3_SECURE = "S3_SECURE"
 # the author→test-set→assessment→learner-take journey; a 15-min link would 404
 # before a learner reaches the assessment.
 _SIGNED_URL_EXPIRY_SECONDS = 604800
+# The MinIO SDK's `expires` is a timedelta; passing a bare int raises
+# AttributeError: 'int' object has no attribute 'total_seconds'.
+_SIGNED_URL_EXPIRY = timedelta(seconds=_SIGNED_URL_EXPIRY_SECONDS)
 
 # MIME → file extension for the object key suffix.
 _MIME_EXT = {
@@ -136,7 +140,7 @@ class GcsImageUploadAdapter:
 
     def _sign_sync(self, bucket_name: str, key: str) -> str:
         client = self._resolve_client()
-        return str(client.presigned_get_object(bucket_name, key, expires=_SIGNED_URL_EXPIRY_SECONDS))
+        return str(client.presigned_get_object(bucket_name, key, expires=_SIGNED_URL_EXPIRY))
 
     def _upload_and_sign_sync(self, key: str, data: bytes, content_type: str) -> tuple[str, str]:
         client = self._resolve_client()
@@ -148,7 +152,7 @@ class GcsImageUploadAdapter:
             content_type=content_type or "image/png",
         )
         gs_uri = f"gs://{self._bucket_name}/{key}"
-        signed = client.presigned_get_object(self._bucket_name, key, expires=_SIGNED_URL_EXPIRY_SECONDS)
+        signed = client.presigned_get_object(self._bucket_name, key, expires=_SIGNED_URL_EXPIRY)
         return gs_uri, str(signed)
 
     def _resolve_client(self) -> Any:
