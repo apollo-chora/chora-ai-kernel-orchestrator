@@ -28,16 +28,22 @@ from chora_ai_kernel_orchestrator.adapter.gcs.image_upload import (
 
 
 def parse_gs_uri(gs_uri: str) -> tuple[str, str]:
-    """Split ``gs://bucket/object/path`` into ``(bucket, object_path)``.
-    Raises ``ValueError`` for anything that is not a well-formed gs:// URI with
-    a non-empty bucket and object path."""
-    if not gs_uri.startswith("gs://"):
-        raise ValueError(f"not a gs:// URI: {gs_uri!r}")
-    rest = gs_uri[len("gs://") :]
-    bucket, sep, path = rest.partition("/")
-    if not bucket or not sep or not path:
-        raise ValueError(f"gs:// URI missing bucket or object path: {gs_uri!r}")
-    return bucket, path
+    """Split ``gs://bucket/object/path`` or ``s3://bucket/object/path`` into
+    ``(bucket, object_path)``. Raises ``ValueError`` for anything that is not a
+    well-formed reference with a non-empty bucket and object path.
+
+    ``gs://`` is the legacy GCP spelling; the cloud-neutral deployment emits
+    ``s3://`` for the same object-store location.
+    """
+    text = (gs_uri or "").strip()
+    for scheme in ("gs://", "s3://"):
+        if text.startswith(scheme):
+            rest = text[len(scheme) :]
+            bucket, sep, path = rest.partition("/")
+            if not bucket or not sep or not path:
+                raise ValueError(f"{scheme} URI missing bucket or object path: {gs_uri!r}")
+            return bucket, path
+    raise ValueError(f"not a gs:// or s3:// URI: {gs_uri!r}")
 
 
 class GcsBlobDownloader:

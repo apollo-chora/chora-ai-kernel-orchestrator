@@ -50,3 +50,18 @@ async def test_sign_read_url_refuses_a_non_gs_reference() -> None:
         await adapter.sign_read_url("https://storage.googleapis.com/b/k.png")
     with pytest.raises(ValueError):
         await adapter.sign_read_url("gs://bucket-only")
+
+
+@pytest.mark.asyncio
+async def test_sign_read_url_accepts_the_s3_scheme_the_deployment_emits() -> None:
+    """The cloud-neutral deployment's qgen_render agent returns an s3:// URI
+    (its S3ObjectStore writes MinIO), while the adapter's legacy spelling is
+    gs://. Rejecting s3:// made every render look failed, so nothing was
+    stamped onto the candidate."""
+    client = _FakeMinio()
+    adapter = GcsImageUploadAdapter(bucket_name="chora-ai-assist-images", client=client)
+
+    url = await adapter.sign_read_url("s3://chora-ai-assist-images/tenants/t/jobs/j/abc.png")
+
+    assert url == "https://minio.local/chora-ai-assist-images/tenants/t/jobs/j/abc.png?sig=abc"
+    assert client.signed == [("chora-ai-assist-images", "tenants/t/jobs/j/abc.png", 604800)]

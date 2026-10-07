@@ -82,3 +82,13 @@ async def test_exists_reports_presence_by_gs_reference() -> None:
     dl = GcsBlobDownloader(client=client)
     assert await dl.exists("gs://bkt/tenants/t/old.png") is True
     assert await dl.exists("gs://bkt/tenants/t/gone.png") is False
+
+
+def test_parse_gs_uri_accepts_the_s3_scheme():
+    assert parse_gs_uri("s3://bucket/object/path") == ("bucket", "object/path")
+    assert parse_gs_uri("gs://bucket/object/path") == ("bucket", "object/path")
+
+
+def test_parse_gs_uri_rejects_an_unknown_scheme():
+    with pytest.raises(ValueError):
+        parse_gs_uri("http://bucket/object")

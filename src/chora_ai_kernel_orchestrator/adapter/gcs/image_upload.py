@@ -190,15 +190,24 @@ def _env_flag(name: str) -> bool | None:
 
 
 def _split_gs_uri(gs_uri: str) -> tuple[str, str]:
-    """``gs://bucket/object`` -> (bucket, object); ValueError otherwise."""
+    """``gs://bucket/object`` or ``s3://bucket/object`` -> (bucket, object).
+
+    Both schemes name the same object-store location. ``gs://`` is the legacy
+    GCP spelling; the cloud-neutral deployment's MinIO/S3 adapters (and the
+    qgen_render agent's S3ObjectStore) emit ``s3://``, so a reader that only
+    accepted ``gs://`` rejected every render it was handed.
+    """
     text = (gs_uri or "").strip()
-    if not text.startswith("gs://"):
-        raise ValueError(f"sign_read_url: not a gs:// reference: {text[:120]!r}")
-    rest = text[len("gs://") :]
-    bucket, _, key = rest.partition("/")
-    if not bucket or not key:
-        raise ValueError(f"sign_read_url: gs:// reference needs a bucket and an object: {text[:120]!r}")
-    return bucket, key
+    for scheme in ("gs://", "s3://"):
+        if text.startswith(scheme):
+            rest = text[len(scheme) :]
+            bucket, _, key = rest.partition("/")
+            if not bucket or not key:
+                raise ValueError(
+                    f"sign_read_url: {scheme} reference needs a bucket and an object: {text[:120]!r}"
+                )
+            return bucket, key
+    raise ValueError(f"sign_read_url: not a gs:// or s3:// reference: {text[:120]!r}")
 
 
 __all__ = [

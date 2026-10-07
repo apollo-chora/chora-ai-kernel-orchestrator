@@ -1185,9 +1185,12 @@ async def render_spec(
         )
         raw = _safe_json_loads(resp.output_payload or "", {})
         image_uri = str(raw.get("image_uri") or "") if isinstance(raw, dict) else ""
-        if not image_uri.startswith("gs://"):
+        # Both schemes name the same object-store location: gs:// is the legacy
+        # GCP spelling, s3:// is what the cloud-neutral MinIO adapters and the
+        # qgen_render agent emit. Rejecting s3:// made every render look failed.
+        if not image_uri.startswith(("gs://", "s3://")):
             raise RuntimeError(
-                f"qgen_render returned no gs:// image_uri (got {str(resp.output_payload or '')[:160]!r})"
+                f"qgen_render returned no gs:// or s3:// image_uri (got {str(resp.output_payload or '')[:160]!r})"
             )
         url = await gcs.sign_read_url(image_uri)
         return image_uri, url
