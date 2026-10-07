@@ -82,10 +82,6 @@ class CompletionRouter:
     def roles(self) -> list[str]:
         return sorted({role for role, _ in self._runners})
 
-    def crews_for(self, agent_role: str) -> list[str]:
-        role = _require(agent_role, "agent_role")
-        return sorted(crew for r, crew in self._runners if r == role)
-
     def runner_for(self, agent_role: str, *, crew: str | None = None) -> _RunnerLike:
         """The runner for (role, crew). With no crew hint (an unledgered
         completion) or an unknown crew (a renamed one) the role's ONLY runner

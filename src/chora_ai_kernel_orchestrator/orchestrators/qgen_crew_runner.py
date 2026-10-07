@@ -2347,25 +2347,6 @@ def _aggregate_tokens_for(
     return prompt, completion, cached
 
 
-def _aggregate_tokens(
-    pipeline_trace: list[dict[str, Any]],
-) -> tuple[int, int, int]:
-    """Run-level total: sum ``input_tokens`` / ``output_tokens`` /
-    ``cached_tokens`` across ALL LLM-issuing trace rows (``generate`` +
-    ``critique``). Retained for run-level cost views; the per-agent decision
-    emit uses ``_aggregate_tokens_for`` to attribute counts per agent.
-    """
-    prompt = 0
-    completion = 0
-    cached = 0
-    for hop in _LLM_HOP_TRACE_NAMES:
-        p, c, cache = _aggregate_tokens_for(pipeline_trace, hop)
-        prompt += p
-        completion += c
-        cached += cache
-    return prompt, completion, cached
-
-
 def _extract_guardrail_outcome(
     pipeline_trace: list[dict[str, Any]],
     refusal_reason: str,

@@ -50,18 +50,6 @@ ENV_FAIL_CLOSED = "CHORA_SAFESEARCH_FAIL_CLOSED"
 _TRUTHY = {"1", "true", "yes"}
 
 
-def _rank(value: Any) -> int:
-    """Coerce a likelihood (enum member / int / name) to an ordinal."""
-    name = getattr(value, "name", None)
-    if isinstance(name, str):
-        return _LIKELIHOOD_RANK.get(name.upper(), 0)
-    if isinstance(value, bool):  # bool is an int subclass — guard first
-        return 0
-    if isinstance(value, int):
-        return value if 0 <= value <= 5 else 0
-    return _LIKELIHOOD_RANK.get(str(value).upper(), 0)
-
-
 def _threshold_rank(name: str) -> int:
     """Resolve a threshold name to its rank; UNKNOWN / unparseable → default."""
     rank = _LIKELIHOOD_RANK.get((name or "").strip().upper())
