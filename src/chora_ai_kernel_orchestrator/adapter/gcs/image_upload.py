@@ -42,6 +42,11 @@ ENV_S3_ENDPOINT = "S3_ENDPOINT"
 ENV_S3_ACCESS_KEY = "S3_ACCESS_KEY_ID"
 ENV_S3_SECRET_KEY = "S3_SECRET_ACCESS_KEY"
 ENV_S3_SECURE = "S3_SECURE"
+# Optional: the endpoint a BROWSER can reach. SigV4 signs the Host header, so a
+# presigned URL minted against the in-network host (`minio:9000`) cannot be
+# rewritten into a public one — the signature would not match. When set, the
+# adapter mints URLs with this host instead (signing needs no connection).
+ENV_S3_PUBLIC_ENDPOINT = "S3_PUBLIC_ENDPOINT"
 
 # Presigned-URL maximum (7 days). Persisted question/answer images must survive
 # the author→test-set→assessment→learner-take journey; a 15-min link would 404
@@ -79,6 +84,7 @@ class GcsImageUploadAdapter:
         access_key: str | None = None,
         secret_key: str | None = None,
         secure: bool | None = None,
+        public_endpoint: str | None = None,
     ) -> None:
         if not (bucket_name or "").strip():
             raise ValueError(
@@ -91,6 +97,8 @@ class GcsImageUploadAdapter:
         self._access_key = access_key
         self._secret_key = secret_key
         self._secure = secure
+        self._public_endpoint = public_endpoint
+        self._signing_client: Any = None
 
     @classmethod
     def from_env(cls) -> GcsImageUploadAdapter | None:
@@ -105,6 +113,7 @@ class GcsImageUploadAdapter:
             access_key=os.getenv(ENV_S3_ACCESS_KEY, "").strip() or None,
             secret_key=os.getenv(ENV_S3_SECRET_KEY, "").strip() or None,
             secure=_env_flag(ENV_S3_SECURE),
+            public_endpoint=os.getenv(ENV_S3_PUBLIC_ENDPOINT, "").strip() or None,
         )
 
     @property
@@ -139,8 +148,35 @@ class GcsImageUploadAdapter:
         return await asyncio.to_thread(self._sign_sync, bucket_name, key)
 
     def _sign_sync(self, bucket_name: str, key: str) -> str:
-        client = self._resolve_client()
+        client = self._resolve_signing_client()
         return str(client.presigned_get_object(bucket_name, key, expires=_SIGNED_URL_EXPIRY))
+
+    def _resolve_signing_client(self) -> Any:
+        """The client whose endpoint ends up in the presigned URL.
+
+        Signing is pure computation (no connection), so when a public endpoint
+        is configured we sign with THAT host — otherwise the URL names the
+        in-network service and the author's browser cannot fetch it.
+        """
+        if not self._public_endpoint:
+            return self._resolve_client()
+        if self._signing_client is None:
+            from minio import Minio  # lazy — keeps the test path SDK-free
+
+            endpoint = self._public_endpoint
+            secure = self._secure
+            if "://" in endpoint:
+                scheme, _, hostport = endpoint.partition("://")
+                if secure is None:
+                    secure = scheme.strip().lower() == "https"
+                endpoint = hostport.strip("/")
+            self._signing_client = Minio(
+                endpoint,
+                access_key=self._access_key or os.getenv(ENV_S3_ACCESS_KEY, "").strip() or None,
+                secret_key=self._secret_key or os.getenv(ENV_S3_SECRET_KEY, "").strip() or None,
+                secure=bool(secure),
+            )
+        return self._signing_client
 
     def _upload_and_sign_sync(self, key: str, data: bytes, content_type: str) -> tuple[str, str]:
         client = self._resolve_client()
@@ -152,7 +188,9 @@ class GcsImageUploadAdapter:
             content_type=content_type or "image/png",
         )
         gs_uri = f"gs://{self._bucket_name}/{key}"
-        signed = client.presigned_get_object(self._bucket_name, key, expires=_SIGNED_URL_EXPIRY)
+        signed = self._resolve_signing_client().presigned_get_object(
+            self._bucket_name, key, expires=_SIGNED_URL_EXPIRY
+        )
         return gs_uri, str(signed)
 
     def _resolve_client(self) -> Any:
@@ -219,6 +257,7 @@ __all__ = [
     "ENV_S3_ACCESS_KEY",
     "ENV_S3_ENDPOINT",
     "ENV_S3_SECRET_KEY",
+    "ENV_S3_PUBLIC_ENDPOINT",
     "ENV_S3_SECURE",
     "GcsImageUploadAdapter",
 ]

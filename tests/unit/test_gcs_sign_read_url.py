@@ -66,3 +66,27 @@ async def test_sign_read_url_accepts_the_s3_scheme_the_deployment_emits() -> Non
 
     assert url == "https://minio.local/chora-ai-assist-images/tenants/t/jobs/j/abc.png?sig=abc"
     assert client.signed == [("chora-ai-assist-images", "tenants/t/jobs/j/abc.png", timedelta(seconds=604800))]
+
+
+@pytest.mark.asyncio
+async def test_sign_read_url_uses_the_public_endpoint_when_configured() -> None:
+    """SigV4 signs the Host header, so a URL minted against the in-network host
+    (`minio:9000`) cannot be rewritten for a browser. With a public endpoint
+    configured the adapter signs with that host instead."""
+    signed: list[tuple[str, str]] = []
+
+    class _SigningClient:
+        def presigned_get_object(self, bucket: str, key: str, expires: object) -> str:
+            signed.append((bucket, key))
+            return f"https://public.example/{bucket}/{key}?sig=abc"
+
+    adapter = GcsImageUploadAdapter(
+        bucket_name="chora-ai-assist-images",
+        public_endpoint="public.example",
+    )
+    adapter._signing_client = _SigningClient()  # inject the public-host client
+
+    url = await adapter.sign_read_url("s3://chora-ai-assist-images/tenants/t/jobs/j/abc.png")
+
+    assert url == "https://public.example/chora-ai-assist-images/tenants/t/jobs/j/abc.png?sig=abc"
+    assert signed == [("chora-ai-assist-images", "tenants/t/jobs/j/abc.png")]
