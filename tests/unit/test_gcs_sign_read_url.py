@@ -8,9 +8,8 @@ is taken from the URI, which may differ from the upload bucket).
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import pytest
 

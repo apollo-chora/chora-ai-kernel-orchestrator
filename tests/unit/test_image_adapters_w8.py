@@ -9,9 +9,8 @@ ADR-254 D12: a scene render is a qgen_render dispatch, the kennel only signs.)
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 
 import pytest
