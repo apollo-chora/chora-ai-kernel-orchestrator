@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 ENV_NATS_URL = "NATS_URL"
 
+#: Transport prefix ``chora-common/eventbus/bus.go`` ``DLQSubject`` puts on the
+#: original subject when it dead-letters a message. An infrastructure address,
+#: not a domain event name.
+_DLQ_SUBJECT_PREFIX = "_dlq."
+
 
 class _SubscriberLike(Protocol):
     async def handle_message(self, msg: Any) -> None: ...
@@ -140,6 +145,18 @@ class NatsConsumerLoop:
     def _full_subject(self, subject: str) -> str:
         return f"{self._subject_prefix}{subject}" if self._subject_prefix else subject
 
+    def _durable_name(self, subject: str) -> str:
+        """JetStream durable name for a bound subject.
+
+        The durable keys off the ORIGINAL subject, not the ``_dlq.``-prefixed
+        one: ``_dlq.`` is a transport prefix ``chora-common/eventbus`` puts on
+        the subject a consumer dead-lettered, so it says nothing about which
+        consumer is listening. Deriving from it would also make the durable
+        name differ from every other consumer on the same original subject.
+        """
+        base = subject[len(_DLQ_SUBJECT_PREFIX):] if subject.startswith(_DLQ_SUBJECT_PREFIX) else subject
+        return f"{self._durable_prefix}-{base.replace('.', '-')}"
+
     async def start(self) -> None:
         if self._stopped is not None:
             raise RuntimeError("NatsConsumerLoop: already started")
@@ -148,7 +165,7 @@ class NatsConsumerLoop:
         js = self._nc.jetstream()
         for subject in self._subjects:
             full = self._full_subject(subject)
-            durable = f"{self._durable_prefix}-{subject.replace('.', '-')}"
+            durable = self._durable_name(subject)
             try:
                 sub = await js.pull_subscribe(full, durable=durable)
             except Exception:

@@ -9,7 +9,8 @@ Per [[secrets-and-env]] the subject + NATS URL come from env vars:
 
     NATS_URL                       — NATS connection URL (required)
     WEAKNESS_ANALYSER_SUBSCRIPTION — NATS subject (default: the canonical
-                                     weakness-doc-uploaded subject)
+                                     weakness-doc-uploaded subject
+                                     ``chora.consumption.weakness_doc.uploaded.v1``)
 """
 
 from __future__ import annotations
@@ -22,7 +23,13 @@ from chora_ai_kernel_orchestrator.adapter.pubsub.nats import NatsConsumerLoop
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SUBSCRIPTION = "chora-ai-kernel-orchestrator.weakness-doc-uploaded"
+# Canonical inbound subject per chora-contracts/asyncapi/consumption/
+# weakness-doc-uploaded-v1.yaml: chora-consumption publishes the uploaded
+# weakness document on ``chora.consumption.weakness_doc.uploaded.v1``. The
+# legacy Pub/Sub subscription id is NOT a NATS subject (the live JetStream
+# stream captures only ``chora.>``), so a consumer bound to it never receives a
+# document.
+DEFAULT_SUBSCRIPTION = "chora.consumption.weakness_doc.uploaded.v1"
 
 ENV_NATS_URL = "NATS_URL"
 ENV_WEAKNESS_SUBSCRIPTION = "WEAKNESS_ANALYSER_SUBSCRIPTION"

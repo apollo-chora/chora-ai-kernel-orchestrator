@@ -187,12 +187,12 @@ async def test_start_backfills_then_starts_loops_scan_and_one_drain() -> None:
         assert kinds["completion"].subscriptions == ["oe_evaluate", "oe_moderate", "weakness_diagnose"]
         assert kinds["completion"].started == 1
         assert kinds["dlq"].subscriptions == [
-            "chora.dlq.ai_kernel.agent_dispatch.oe_evaluate_requested.v1.pull",
-            "chora.dlq.ai_kernel.agent_dispatch.oe_evaluate_completed.v1.pull",
-            "chora.dlq.ai_kernel.agent_dispatch.oe_moderate_requested.v1.pull",
-            "chora.dlq.ai_kernel.agent_dispatch.oe_moderate_completed.v1.pull",
-            "chora.dlq.ai_kernel.agent_dispatch.weakness_diagnose_requested.v1.pull",
-            "chora.dlq.ai_kernel.agent_dispatch.weakness_diagnose_completed.v1.pull",
+            "_dlq.chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1",
+            "_dlq.chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1",
+            "_dlq.chora.ai_kernel.agent_dispatch.oe_moderate_requested.v1",
+            "_dlq.chora.ai_kernel.agent_dispatch.oe_moderate_completed.v1",
+            "_dlq.chora.ai_kernel.agent_dispatch.weakness_diagnose_requested.v1",
+            "_dlq.chora.ai_kernel.agent_dispatch.weakness_diagnose_completed.v1",
         ]
         assert kinds["dlq"].started == 1
         assert runtime.drain_task is not None and not runtime.drain_task.done()

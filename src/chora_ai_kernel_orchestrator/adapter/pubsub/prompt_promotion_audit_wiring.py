@@ -7,11 +7,12 @@ starts/stops together (mirrors ``build_qgen_crew_from_env`` /
 ``build_oe_grading_crew_from_env``). Pulls config from env vars per
 [[secrets-and-env]] — no inline config.
 
-Subscribes to ``chora.governance.audit.recorded.v1`` (provisioned via Terraform —
-``chora-infra/terraform/environments/dev/main.tf`` subscription
-``chora-ai-kernel-orchestrator.prompt-promotion-audit-recorded``; the orchestrator
-reads its resource name from ``PROMPT_PROMOTION_AUDIT_SUBSCRIPTION``) and drives
-the promotion transition on a human approve/reject.
+Subscribes to ``chora.governance.audit.recorded.v1`` (the canonical audit-recorded
+topic per ``chora-contracts/asyncapi/governance/audit-recorded-v1.yaml``;
+provisioned via Terraform as the Pub/Sub subscription
+``chora-ai-kernel-orchestrator.prompt-promotion-audit-recorded``, whose resource
+name the orchestrator reads from ``PROMPT_PROMOTION_AUDIT_SUBSCRIPTION``) and
+drives the promotion transition on a human approve/reject.
 
 BEHAVIOUR-NEUTRAL: this path comes online only when
 ``PROMPT_PROMOTION_AUDIT_ENABLED`` is truthy AND the env is fully wired. Until a
@@ -24,8 +25,7 @@ orchestrator up without this consumer):
 
     CHORA_PUBSUB_PROJECT                  — Pub/Sub host project (chora-489812)
     CHORA_AI_KERNEL_PG_DSN                — psycopg DSN for chora_ai_kernel
-    PROMPT_PROMOTION_AUDIT_SUBSCRIPTION   — full subscription resource (or short
-                                            name; default below)
+    PROMPT_PROMOTION_AUDIT_SUBSCRIPTION   — NATS subject (default below)
 """
 
 from __future__ import annotations
@@ -66,8 +66,11 @@ from chora_ai_kernel_orchestrator.domain.prompt_registry import (
 
 logger = logging.getLogger(__name__)
 
-# Matches the Terraform subscription key for this consumer.
-DEFAULT_SUBSCRIPTION = "chora-ai-kernel-orchestrator.prompt-promotion-audit-recorded"
+# The canonical audit-recorded subject (chora-contracts/asyncapi/governance/
+# audit-recorded-v1.yaml). The legacy Pub/Sub subscription id is NOT a NATS
+# subject: the live JetStream stream captures only ``chora.>``, so a consumer
+# bound to it never receives an audit record.
+DEFAULT_SUBSCRIPTION = "chora.governance.audit.recorded.v1"
 ENV_SUBSCRIPTION = "PROMPT_PROMOTION_AUDIT_SUBSCRIPTION"
 
 _WORKER_ID = "prompt-promotion-audit-worker-1"

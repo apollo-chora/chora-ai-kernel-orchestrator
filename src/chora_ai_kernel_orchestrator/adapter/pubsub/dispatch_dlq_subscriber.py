@@ -1,24 +1,24 @@
-"""DispatchDlqSubscriber: reaper arms (a) and (c) over the dispatch DLQ pull subs.
+"""DispatchDlqSubscriber: reaper arms (a) and (c) over the dispatch DLQ subjects.
 
-Every agent-dispatch lane dead-letters to
-``chora.dlq.ai_kernel.agent_dispatch.{role}_{requested|completed}.v1`` after
-five delivery attempts, and each DLQ topic carries a ``.pull`` subscription
-(``agent_dispatch_lanes.tf``) that nothing consumed until now. The kennel
-consumes them all (the orchestrator SA holds subscriber on every one, ADR-254
-D3) through the same StreamingPull wrapper the completion lane uses, and
-settles the parked run FAILED through the reaper.
+Every agent-dispatch lane dead-letters to ``_dlq.chora.ai_kernel.agent_dispatch.
+{role}_{requested|completed}.v1`` — the platform DLQ convention
+(``chora-common/eventbus/bus.go`` ``DLQSubject``: the transport prefix ``_dlq.``
+on the ORIGINAL subject), which the root Compose CHORA_DLQ stream captures via
+``_dlq.>``. The kennel consumes them all (the orchestrator SA holds subscriber
+on every one, ADR-254 D3) through the same pull-consumer wrapper the completion
+lane uses, and settles the parked run FAILED through the reaper.
 
-Which arm a message belongs to is read from what Pub/Sub stamps on a forwarded
-dead letter (``CloudPubSubDeadLetterSourceSubscription`` ends in ``-requested``
-or ``-completed``; ``CloudPubSubDeadLetterSourceDeliveryCount`` is the attempt
-count), with the producer's ``event_topic`` attribute as the fallback. Never
-from the body's shape.
+Which arm a message belongs to is read from the ``Chora-Dlq-*`` headers the Go
+eventbus stamps on a dead letter (``Chora-Dlq-Source-Subject`` is the original
+subject, ``Chora-Dlq-Delivery-Count`` the attempt count), with the Pub/Sub
+attribute names kept as a migration fallback and the producer's ``event_topic``
+attribute as the last resort. Never from the body's shape.
 
 Ack policy, stated because it differs from the request lanes: a message that
 cannot be classified or carries no request key is logged LOUD and ACKed. A DLQ
-pull subscription has no onward DLQ, so a NACK would redeliver the same
-unprocessable message forever. A reaper failure (ledger unreachable, runner
-error) NACKs: that is transient and a retry is right.
+subject has no onward DLQ, so a NACK would redeliver the same unprocessable
+message forever. A reaper failure (ledger unreachable, runner error) NACKs:
+that is transient and a retry is right.
 """
 
 from __future__ import annotations
@@ -32,16 +32,41 @@ from chora_ai_kernel_orchestrator.domain.agent_dispatch.reaper import ReaperArm
 
 logger = logging.getLogger(__name__)
 
-_DLQ_PREFIX = "chora.dlq.ai_kernel.agent_dispatch"
-_PULL_SUFFIX = ".pull"
+#: The original (pre-DLQ) dispatch subject family. The DLQ subject is this
+#: prefixed with ``_dlq.`` — see ``dlq_subject``.
+_DISPATCH_SUBJECT_PREFIX = "chora.ai_kernel.agent_dispatch"
 
+#: Transport prefix ``chora-common/eventbus/bus.go`` ``DLQSubject`` puts on the
+#: original subject. An infrastructure address, not a domain event name.
+_DLQ_SUBJECT_PREFIX = "_dlq."
+
+# What the Go eventbus stamps on a dead letter (chora-common/eventbus/jetstream.go
+# ``dlqHeaders``). These are the PRIMARY classify inputs: every NATS producer in
+# the monorepo dead-letters through that path.
+HDR_DLQ_SOURCE_SUBJECT = "Chora-Dlq-Source-Subject"
+HDR_DLQ_DELIVERY_COUNT = "Chora-Dlq-Delivery-Count"
+
+# Pub/Sub-era attribute names. Kept as a migration fallback only: nothing in the
+# monorepo publishes to ``chora.dlq.*`` any more, so no NATS producer stamps them.
 ATTR_SOURCE_SUBSCRIPTION = "CloudPubSubDeadLetterSourceSubscription"
 ATTR_SOURCE_DELIVERY_COUNT = "CloudPubSubDeadLetterSourceDeliveryCount"
 ATTR_EVENT_TOPIC = "event_topic"
 
 
+def dlq_subject(agent_role: str, *, side: str) -> str:
+    """The DLQ subject an agent role's ``side`` dispatch lane dead-letters to."""
+    role = (agent_role or "").strip()
+    if not role:
+        raise ValueError("dlq_subject: agent_role required")
+    return f"{_DLQ_SUBJECT_PREFIX}{_DISPATCH_SUBJECT_PREFIX}.{role}_{side}.v1"
+
+
 def dlq_pull_subscription_names(agent_roles: Iterable[str]) -> list[str]:
-    """The ``.pull`` subscription on each lane's request AND completion DLQ."""
+    """The DLQ subject of each lane's request AND completion side.
+
+    The ``.pull`` suffix is deliberately gone: these are NATS subjects, not
+    Pub/Sub subscription ids, and the CHORA_DLQ stream captures ``_dlq.>``.
+    """
     roles = [r.strip() for r in agent_roles if (r or "").strip()]
     if not roles:
         raise ValueError(
@@ -49,8 +74,8 @@ def dlq_pull_subscription_names(agent_roles: Iterable[str]) -> list[str]:
         )
     names: list[str] = []
     for role in roles:
-        names.append(f"{_DLQ_PREFIX}.{role}_requested.v1{_PULL_SUFFIX}")
-        names.append(f"{_DLQ_PREFIX}.{role}_completed.v1{_PULL_SUFFIX}")
+        names.append(dlq_subject(role, side="requested"))
+        names.append(dlq_subject(role, side="completed"))
     return names
 
 
@@ -114,8 +139,8 @@ class DispatchDlqSubscriber:
             msg.ack()
             return
 
-        attempts = _int(attrs.get(ATTR_SOURCE_DELIVERY_COUNT))
-        source_sub = attrs.get(ATTR_SOURCE_SUBSCRIPTION, "")
+        attempts = _delivery_count(attrs)
+        source_sub = _source_subject(attrs)
         side = "request" if arm is ReaperArm.REQUEST_DEAD_LETTERED else "completion"
         reason = f"{side} dead-lettered after {attempts} delivery attempts"
         if source_sub:
@@ -155,17 +180,23 @@ class DispatchDlqSubscriber:
 
 
 def _classify(attrs: dict[str, str]) -> tuple[ReaperArm | None, str]:
-    source_sub = (attrs.get(ATTR_SOURCE_SUBSCRIPTION) or "").strip()
+    """Pick the reaper arm from the dead letter's provenance headers.
+
+    ``Chora-Dlq-Source-Subject`` is the original subject the Go eventbus
+    dead-lettered (``chora.ai_kernel.agent_dispatch.{role}_{side}.v1``), so it
+    carries the arm directly. The Pub/Sub attribute and the producer's
+    ``event_topic`` are fallbacks for a producer still on the old path.
+    """
+    source_sub = _source_subject(attrs)
     topic = (attrs.get(ATTR_EVENT_TOPIC) or "").strip()
+    # ``event_topic`` is the producer's actual topic; the Pub/Sub subscription
+    # id is not one, so it is the last resort for the reported original topic.
     original_topic = topic or source_sub
-    if source_sub.endswith("-requested"):
-        return ReaperArm.REQUEST_DEAD_LETTERED, original_topic
-    if source_sub.endswith("-completed"):
-        return ReaperArm.COMPLETION_DEAD_LETTERED, original_topic
-    if topic.endswith("_requested.v1"):
-        return ReaperArm.REQUEST_DEAD_LETTERED, original_topic
-    if topic.endswith("_completed.v1"):
-        return ReaperArm.COMPLETION_DEAD_LETTERED, original_topic
+    for candidate in (source_sub, topic):
+        if candidate.endswith("_requested.v1") or candidate.endswith("-requested"):
+            return ReaperArm.REQUEST_DEAD_LETTERED, original_topic
+        if candidate.endswith("_completed.v1") or candidate.endswith("-completed"):
+            return ReaperArm.COMPLETION_DEAD_LETTERED, original_topic
     return None, original_topic
 
 
@@ -176,10 +207,27 @@ def _int(value: Any) -> int:
         return 0
 
 
+def _source_subject(attrs: dict[str, str]) -> str:
+    """The original subject, preferring the NATS ``Chora-Dlq-*`` header."""
+    return (attrs.get(HDR_DLQ_SOURCE_SUBJECT) or attrs.get(ATTR_SOURCE_SUBSCRIPTION) or "").strip()
+
+
+def _delivery_count(attrs: dict[str, str]) -> int:
+    """How many deliveries the dead letter represents.
+
+    ``Chora-Dlq-Delivery-Count`` is stamped by the Go eventbus and is the only
+    source a NATS producer provides; the Pub/Sub attribute is the fallback.
+    """
+    return _int(attrs.get(HDR_DLQ_DELIVERY_COUNT) or attrs.get(ATTR_SOURCE_DELIVERY_COUNT))
+
+
 __all__ = [
     "ATTR_EVENT_TOPIC",
     "ATTR_SOURCE_DELIVERY_COUNT",
     "ATTR_SOURCE_SUBSCRIPTION",
+    "HDR_DLQ_DELIVERY_COUNT",
+    "HDR_DLQ_SOURCE_SUBJECT",
     "DispatchDlqSubscriber",
     "dlq_pull_subscription_names",
+    "dlq_subject",
 ]

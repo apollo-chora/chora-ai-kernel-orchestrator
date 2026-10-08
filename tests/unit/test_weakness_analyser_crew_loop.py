@@ -48,6 +48,8 @@ class TestFromEnv:
         monkeypatch.delenv(ENV_WEAKNESS_SUBSCRIPTION, raising=False)
         loop = WeaknessAnalyserCrewPubsubLoop.from_env(subscriber=_FakeSubscriber())
         assert loop is not None
+        # Pinned to the contract topic, not the legacy Pub/Sub subscription id.
+        assert DEFAULT_SUBSCRIPTION == "chora.consumption.weakness_doc.uploaded.v1"
         assert loop._subscription == DEFAULT_SUBSCRIPTION  # noqa: SLF001
         assert loop._project == "chora-ai-kernel"  # noqa: SLF001
 

@@ -1,16 +1,18 @@
-"""RED: ADR-254 D5, reaper arms (a) and (c) consume the dispatch DLQ pull subs.
+"""RED: ADR-254 D5, reaper arms (a) and (c) consume the dispatch DLQ subjects.
 
-Every agent-dispatch lane already dead-letters to
-``chora.dlq.ai_kernel.agent_dispatch.{role}_{requested|completed}.v1`` and
-each DLQ topic has a ``.pull`` subscription (agent_dispatch_lanes.tf) that
-NOTHING consumes. This subscriber reads them from the orchestrator and settles
-the parked run FAILED through the reaper.
+Every agent-dispatch lane dead-letters to ``_dlq.chora.ai_kernel.agent_dispatch.
+{role}_{requested|completed}.v1`` — the platform DLQ convention
+(``chora-common/eventbus/bus.go`` ``DLQSubject``), captured by the root Compose
+CHORA_DLQ stream's ``_dlq.>`` filter. This subscriber reads them from the
+orchestrator and settles the parked run FAILED through the reaper.
 
-Which arm a message belongs to is read from what Pub/Sub stamps on a forwarded
-dead letter (``CloudPubSubDeadLetterSourceSubscription``, ``...DeliveryCount``)
-with the request/completion ``event_topic`` attribute as the fallback; never
-from the body's shape. A message that carries neither is logged loud and ACKed:
-a DLQ pull subscription has no onward DLQ, so a NACK would loop forever.
+Which arm a message belongs to is read from the ``Chora-Dlq-*`` headers the Go
+eventbus stamps on a dead letter (``Chora-Dlq-Source-Subject`` is the original
+subject, ``Chora-Dlq-Delivery-Count`` the attempt count), with the Pub/Sub
+attribute names kept as a migration fallback and the request/completion
+``event_topic`` attribute as the last resort; never from the body's shape. A
+message that carries none is logged loud and ACKed: a DLQ subject has no onward
+DLQ, so a NACK would loop forever.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import pytest
 from chora_ai_kernel_orchestrator.adapter.pubsub.dispatch_dlq_subscriber import (
     DispatchDlqSubscriber,
     dlq_pull_subscription_names,
+    dlq_subject,
 )
 from chora_ai_kernel_orchestrator.domain.agent_dispatch.reaper import ReaperArm
 
@@ -76,20 +79,78 @@ _REQUEST_BODY = {"agent_role": "oe_evaluate", "idempotency_key": _KEY, "thread_i
 _COMPLETION_BODY = {"agent_role": "oe_evaluate", "idempotency_key": _KEY, "thread_id": "t", "status": "OK"}
 
 
-def test_pull_subscription_names_follow_the_lane_shape_for_both_sides() -> None:
+def test_pull_subscription_names_use_the_platform_dlq_convention_for_both_sides() -> None:
+    """``_dlq.<original subject>`` per chora-common/eventbus/bus.go DLQSubject —
+    the shape the root Compose CHORA_DLQ stream captures via ``_dlq.>``. The
+    legacy ``chora.dlq.*`` + ``.pull`` form is a Pub/Sub subscription id, not a
+    NATS subject, so a consumer bound to it waits forever."""
     names = dlq_pull_subscription_names(["oe_evaluate", "companion_chat"])
     assert names == [
-        "chora.dlq.ai_kernel.agent_dispatch.oe_evaluate_requested.v1.pull",
-        "chora.dlq.ai_kernel.agent_dispatch.oe_evaluate_completed.v1.pull",
-        "chora.dlq.ai_kernel.agent_dispatch.companion_chat_requested.v1.pull",
-        "chora.dlq.ai_kernel.agent_dispatch.companion_chat_completed.v1.pull",
+        "_dlq.chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1",
+        "_dlq.chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1",
+        "_dlq.chora.ai_kernel.agent_dispatch.companion_chat_requested.v1",
+        "_dlq.chora.ai_kernel.agent_dispatch.companion_chat_completed.v1",
     ]
     with pytest.raises(ValueError):
         dlq_pull_subscription_names([])
 
 
+def test_dlq_subject_prefixes_the_original_subject_only() -> None:
+    assert dlq_subject("oe_evaluate", side="requested") == (
+        "_dlq.chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1"
+    )
+    assert dlq_subject("oe_evaluate", side="completed") == (
+        "_dlq.chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1"
+    )
+    with pytest.raises(ValueError):
+        dlq_subject("  ", side="requested")
+
+
 @pytest.mark.asyncio
 async def test_a_dead_lettered_request_is_arm_a() -> None:
+    reaper = _FakeReaper()
+    msg = _Msg(
+        _REQUEST_BODY,
+        {
+            "Chora-Dlq-Source-Subject": "chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1",
+            "Chora-Dlq-Delivery-Count": "5",
+            "Chora-Dlq-Consumer": "chora-oe-evaluator.agent-dispatch-oe-evaluate-requested",
+            "Chora-Dlq-Reason": "context deadline exceeded",
+        },
+    )
+    await DispatchDlqSubscriber(reaper=reaper).handle_message(msg)
+    assert msg.acked == 1 and msg.nacked == 0
+    call = reaper.calls[0]
+    assert call["key"] == _KEY
+    assert call["arm"] is ReaperArm.REQUEST_DEAD_LETTERED
+    assert call["delivery_attempt"] == 5
+    assert call["original_topic"] == "chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1"
+    assert "5" in call["reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_dead_lettered_completion_is_arm_c() -> None:
+    reaper = _FakeReaper()
+    msg = _Msg(
+        _COMPLETION_BODY,
+        {
+            "Chora-Dlq-Source-Subject": "chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1",
+            "Chora-Dlq-Delivery-Count": "5",
+            "status": "OK",
+        },
+    )
+    await DispatchDlqSubscriber(reaper=reaper).handle_message(msg)
+    assert msg.acked == 1
+    call = reaper.calls[0]
+    assert call["arm"] is ReaperArm.COMPLETION_DEAD_LETTERED
+    assert call["original_topic"] == "chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1"
+    assert "OK" in call["reason"]
+
+
+@pytest.mark.asyncio
+async def test_pubsub_attributes_still_classify_when_the_nats_headers_are_absent() -> None:
+    """Migration fallback: a producer still on the Pub/Sub path stamps the
+    CloudPubSubDeadLetter* attributes instead of the Chora-Dlq-* headers."""
     reaper = _FakeReaper()
     msg = _Msg(
         _REQUEST_BODY,
@@ -100,33 +161,24 @@ async def test_a_dead_lettered_request_is_arm_a() -> None:
         },
     )
     await DispatchDlqSubscriber(reaper=reaper).handle_message(msg)
-    assert msg.acked == 1 and msg.nacked == 0
+    assert msg.acked == 1
     call = reaper.calls[0]
-    assert call["key"] == _KEY
     assert call["arm"] is ReaperArm.REQUEST_DEAD_LETTERED
     assert call["delivery_attempt"] == 5
     assert call["original_topic"] == "chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1"
-    assert "5" in call["reason"] and "chora-oe-evaluator.agent-dispatch-oe-evaluate-requested" in call["reason"]
+    assert "chora-oe-evaluator.agent-dispatch-oe-evaluate-requested" in call["reason"]
 
 
 @pytest.mark.asyncio
-async def test_a_dead_lettered_completion_is_arm_c() -> None:
+async def test_a_missing_delivery_count_reads_as_zero_not_as_an_error() -> None:
     reaper = _FakeReaper()
     msg = _Msg(
-        _COMPLETION_BODY,
-        {
-            "CloudPubSubDeadLetterSourceSubscription": "chora-ai-kernel-orchestrator.agent-dispatch-oe-evaluate-completed",
-            "CloudPubSubDeadLetterSourceDeliveryCount": "5",
-            "event_topic": "chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1",
-            "status": "OK",
-        },
+        _REQUEST_BODY,
+        {"Chora-Dlq-Source-Subject": "chora.ai_kernel.agent_dispatch.oe_evaluate_requested.v1"},
     )
     await DispatchDlqSubscriber(reaper=reaper).handle_message(msg)
     assert msg.acked == 1
-    call = reaper.calls[0]
-    assert call["arm"] is ReaperArm.COMPLETION_DEAD_LETTERED
-    assert call["original_topic"] == "chora.ai_kernel.agent_dispatch.oe_evaluate_completed.v1"
-    assert "OK" in call["reason"]
+    assert reaper.calls[0]["delivery_attempt"] == 0
 
 
 @pytest.mark.asyncio

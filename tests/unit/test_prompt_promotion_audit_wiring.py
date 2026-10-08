@@ -32,6 +32,7 @@ from chora_ai_kernel_orchestrator.adapter.pubsub.audit_recorded_consumer import 
     AuditRecordedConsumer,
 )
 from chora_ai_kernel_orchestrator.adapter.pubsub.prompt_promotion_audit_wiring import (
+    DEFAULT_SUBSCRIPTION,
     PromptPromotionAuditComponents,
     _assemble_components,
     _make_db_conn,
@@ -103,3 +104,9 @@ def test_assemble_components_single_conn_and_shape() -> None:
 
     assert components.pubsub_loop is not None
     assert components.outbox_dispatcher is not None
+
+
+def test_default_subscription_is_the_canonical_audit_recorded_topic() -> None:
+    """The default must be a NATS subject the CHORA_EVENTS ``chora.>`` stream
+    captures, not the legacy Pub/Sub subscription resource name."""
+    assert DEFAULT_SUBSCRIPTION == "chora.governance.audit.recorded.v1"

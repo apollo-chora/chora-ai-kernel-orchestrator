@@ -21,15 +21,23 @@ No model-gateway client is constructed here (deterministic kernel, D5).
 
 Env (per [[secrets-and-env]]):
     KG_EXPLORATION_ENABLED / KG_EXPLORATION_SUBSCRIPTION
-        (default chora-ai-kernel-orchestrator.concept-suggestion-requested)
+        (default chora.consumption.concept_suggestion.requested.v1)
     COMPANION_REFLECTION_ENABLED / COMPANION_REFLECTION_SUBSCRIPTION
-        (default chora-ai-kernel-orchestrator.goal-knowledge-synthesis-requested)
+        (default chora.consumption.goal_knowledge.synthesis_requested.v1)
     COMPANION_TURN_ENABLED / COMPANION_TURN_SUBSCRIPTION
-        (default chora-ai-kernel-orchestrator.consumption-companion-turn-requested)
+        (default chora.consumption.companion_turn.requested.v1)
+    DOSE_RECOMMENDATION_ENABLED / DOSE_RECOMMENDATION_SUBSCRIPTION
+        (default chora.consumption.dose_recommendation.requested.v1)
     COMPANION_TURN_TENANT_INFLIGHT_CAP
         optional per-tenant in-flight cap; unset = no cap, unreadable = RAISE
     CHORA_PUBSUB_PROJECT, CHORA_AI_KERNEL_PG_DSN (or _SECRET_ID)
 An enabled lane that cannot be built returns None and the lifespan ABORTS.
+
+The subscription env vars name a NATS SUBJECT, not a Pub/Sub subscription id: in
+this codebase the subscription string is the NATS subject the pull consumer binds
+to, and the live JetStream stream captures only ``chora.>``. Each default below
+is therefore the canonical ``chora.consumption.*`` request topic the lane's own
+contract module names — never the legacy Pub/Sub subscription id.
 """
 
 from __future__ import annotations
@@ -160,21 +168,21 @@ SINGLE_AGENT_LANES: tuple[LaneSpec, ...] = (
         contract=kg_exploration_contract(),
         enabled_env="KG_EXPLORATION_ENABLED",
         subscription_env="KG_EXPLORATION_SUBSCRIPTION",
-        default_subscription="chora-ai-kernel-orchestrator.concept-suggestion-requested",
+        default_subscription="chora.consumption.concept_suggestion.requested.v1",
         callback_timeout_s=60.0,
     ),
     LaneSpec(
         contract=companion_reflection_contract(),
         enabled_env="COMPANION_REFLECTION_ENABLED",
         subscription_env="COMPANION_REFLECTION_SUBSCRIPTION",
-        default_subscription="chora-ai-kernel-orchestrator.goal-knowledge-synthesis-requested",
+        default_subscription="chora.consumption.goal_knowledge.synthesis_requested.v1",
         callback_timeout_s=60.0,
     ),
     LaneSpec(
         contract=companion_turn_contract(),
         enabled_env="COMPANION_TURN_ENABLED",
         subscription_env="COMPANION_TURN_SUBSCRIPTION",
-        default_subscription="chora-ai-kernel-orchestrator.consumption-companion-turn-requested",
+        default_subscription="chora.consumption.companion_turn.requested.v1",
         callback_timeout_s=60.0,
         cap_env="COMPANION_TURN_TENANT_INFLIGHT_CAP",
     ),
@@ -182,7 +190,7 @@ SINGLE_AGENT_LANES: tuple[LaneSpec, ...] = (
         contract=dose_recommendation_contract(),
         enabled_env="DOSE_RECOMMENDATION_ENABLED",
         subscription_env="DOSE_RECOMMENDATION_SUBSCRIPTION",
-        default_subscription="chora-ai-kernel-orchestrator.consumption-dose-recommendation-requested",
+        default_subscription="chora.consumption.dose_recommendation.requested.v1",
         # Stated rather than inherited, per the field's contract. 60s matches the
         # siblings and is deliberately NOT consumption's 30s dose deadline: this
         # wait covers decode + dispatch + PARK, which is fast, while the 30s

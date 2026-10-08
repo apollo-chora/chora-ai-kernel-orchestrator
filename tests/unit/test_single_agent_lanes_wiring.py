@@ -57,15 +57,15 @@ def test_the_fold_lane_table_names_both_folds_with_their_default_subscriptions()
     kg, refl = by_name["kg_exploration"], by_name["companion_reflection"]
     assert kg.enabled_env == "KG_EXPLORATION_ENABLED"
     assert kg.subscription_env == "KG_EXPLORATION_SUBSCRIPTION"
-    assert kg.default_subscription == "chora-ai-kernel-orchestrator.concept-suggestion-requested"
+    assert kg.default_subscription == "chora.consumption.concept_suggestion.requested.v1"
     assert refl.enabled_env == "COMPANION_REFLECTION_ENABLED"
     assert refl.subscription_env == "COMPANION_REFLECTION_SUBSCRIPTION"
-    assert refl.default_subscription == "chora-ai-kernel-orchestrator.goal-knowledge-synthesis-requested"
+    assert refl.default_subscription == "chora.consumption.goal_knowledge.synthesis_requested.v1"
     assert kg.contract.role == "kg_explore" and refl.contract.role == "companion_chat"
     dose = by_name["dose_recommendation"]
     assert dose.enabled_env == "DOSE_RECOMMENDATION_ENABLED"
     assert dose.subscription_env == "DOSE_RECOMMENDATION_SUBSCRIPTION"
-    assert dose.default_subscription == ("chora-ai-kernel-orchestrator.consumption-dose-recommendation-requested")
+    assert dose.default_subscription == "chora.consumption.dose_recommendation.requested.v1"
     assert dose.contract.role == "recommend"
     assert dose.cap_env == "DOSE_RECOMMENDATION_TENANT_INFLIGHT_CAP"
 
@@ -83,7 +83,7 @@ def test_specs_from_env_select_only_enabled_lanes_and_honour_the_subscription_ov
     monkeypatch.delenv("KG_EXPLORATION_SUBSCRIPTION", raising=False)
     specs = single_agent_lane_specs_from_env()
     assert [s.contract.name for s in specs] == ["kg_exploration", "companion_reflection"]
-    assert specs[0].subscription == "chora-ai-kernel-orchestrator.concept-suggestion-requested"
+    assert specs[0].subscription == "chora.consumption.concept_suggestion.requested.v1"
 
 
 async def test_build_returns_nothing_when_no_lane_is_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,7 +121,7 @@ def test_assemble_builds_one_lane_pinned_to_its_role_and_registers_it() -> None:
     try:
         components = _assemble_single_agent_lane(
             contract=kg_exploration_contract(),
-            subscription="chora-ai-kernel-orchestrator.concept-suggestion-requested",
+            subscription="chora.consumption.concept_suggestion.requested.v1",
             pubsub_project="chora-489812",
             db_conn=_FakeConn(),
             checkpointer=None,
@@ -141,7 +141,7 @@ def test_assemble_builds_one_lane_pinned_to_its_role_and_registers_it() -> None:
     assert components.runner._graph is components.graph
     assert isinstance(components.subscriber, SingleAgentRequestSubscriber)
     assert components.subscriber._runner is components.runner
-    assert components.pubsub_loop.subscriptions == ["chora-ai-kernel-orchestrator.concept-suggestion-requested"]
+    assert components.pubsub_loop.subscriptions == ["chora.consumption.concept_suggestion.requested.v1"]
     assert components.pubsub_loop.project == "chora-489812"
     assert runtime.lanes == [
         {"name": "kg_exploration", "crew": "kg_exploration", "roles": ("kg_explore",), "runner": components.runner}
@@ -152,7 +152,7 @@ def test_assemble_registers_the_reflection_lane_on_the_shared_chat_role() -> Non
     runtime = _FakeRuntime()
     components = _assemble_single_agent_lane(
         contract=companion_reflection_contract(),
-        subscription="chora-ai-kernel-orchestrator.goal-knowledge-synthesis-requested",
+        subscription="chora.consumption.goal_knowledge.synthesis_requested.v1",
         pubsub_project="chora-489812",
         db_conn=_FakeConn(),
         checkpointer=None,
@@ -161,7 +161,7 @@ def test_assemble_registers_the_reflection_lane_on_the_shared_chat_role() -> Non
         nats_url="nats://nats:4222",
     )
     assert runtime.lanes[0]["crew"] == "companion_reflection" and runtime.lanes[0]["roles"] == ("companion_chat",)
-    assert components.pubsub_loop.subscriptions == ["chora-ai-kernel-orchestrator.goal-knowledge-synthesis-requested"]
+    assert components.pubsub_loop.subscriptions == ["chora.consumption.goal_knowledge.synthesis_requested.v1"]
 
 
 def test_assemble_requires_the_runtime() -> None:
@@ -196,7 +196,7 @@ def test_the_table_carries_the_companion_turn_lane_on_its_provisioned_subscripti
     assert spec.enabled_env == "COMPANION_TURN_ENABLED"
     assert spec.subscription_env == "COMPANION_TURN_SUBSCRIPTION"
     # the subscription the coordinator provisioned (120s ack, no push endpoint)
-    assert spec.default_subscription == ("chora-ai-kernel-orchestrator.consumption-companion-turn-requested")
+    assert spec.default_subscription == ("chora.consumption.companion_turn.requested.v1")
     assert spec.contract.role == "companion_chat"
     assert spec.cap_env == "COMPANION_TURN_TENANT_INFLIGHT_CAP"
 
@@ -272,7 +272,7 @@ def test_the_declared_bound_reaches_the_loop_rather_than_the_loop_default() -> N
     runtime = _FakeRuntime()
     components = _assemble_single_agent_lane(
         contract=kg_exploration_contract(),
-        subscription="chora-ai-kernel-orchestrator.concept-suggestion-requested",
+        subscription="chora.consumption.concept_suggestion.requested.v1",
         pubsub_project="chora-489812",
         db_conn=_FakeConn(),
         checkpointer=None,
@@ -288,7 +288,7 @@ def test_the_live_lanes_assemble_on_sixty_seconds() -> None:
     runtime = _FakeRuntime()
     components = _assemble_single_agent_lane(
         contract=kg_exploration_contract(),
-        subscription="chora-ai-kernel-orchestrator.concept-suggestion-requested",
+        subscription="chora.consumption.concept_suggestion.requested.v1",
         pubsub_project="chora-489812",
         db_conn=_FakeConn(),
         checkpointer=None,
@@ -315,7 +315,7 @@ def test_the_guard_fires_for_a_role_whose_agent_half_does_not_exist() -> None:
     with pytest.raises(RuntimeError, match="no subscriber-capable agent"):
         _assemble_single_agent_lane(
             contract=dose_recommendation_contract(),
-            subscription="chora-ai-kernel-orchestrator.consumption-dose-recommendation-requested",
+            subscription="chora.consumption.dose_recommendation.requested.v1",
             pubsub_project="chora-489812",
             db_conn=_FakeConn(),
             checkpointer=None,
@@ -331,7 +331,7 @@ def test_the_guard_does_not_fire_for_a_role_that_has_one() -> None:
     WITH a subscriber through. companion_chat is subscriber-only and live."""
     components = _assemble_single_agent_lane(
         contract=companion_turn_contract(),
-        subscription="chora-ai-kernel-orchestrator.consumption-companion-turn-requested",
+        subscription="chora.consumption.companion_turn.requested.v1",
         pubsub_project="chora-489812",
         db_conn=_FakeConn(),
         checkpointer=None,
