@@ -319,7 +319,7 @@ async def test_single_lane_terminal_does_not_clobber_a_render_warning() -> None:
 # self-rejected on the last attempt) is PUBLISHED with quality_warning but must
 # never render its image. Found by the report session's qgen dossier
 # 2026-08-16: the set lane skipped, the single lane still paid ~22s of
-# gemini-3-pro-image quota per exhausted candidate.
+# muse-image-1.0 quota per exhausted candidate.
 # -----------------------------------------------------------------------------
 
 
@@ -449,7 +449,7 @@ async def test_single_lane_exhausted_skip_needs_no_image_wiring() -> None:
 
 
 # -----------------------------------------------------------------------------
-# Scene-lane pacing: a shared-quota image model (gemini-3-pro-image, dynamic
+# Scene-lane pacing: a shared-quota image model (muse-image-1.0, dynamic
 # shared quota, ~22s/image) is never fanned into. ADR-254 D12 replaced the
 # bounded in-node fan-out with the render loop: ONE qgen_render dispatch per
 # superstep, each a park the completion resumes. That is the pacing now, and it
@@ -533,7 +533,7 @@ async def test_clean_run_still_reports_a_whole_ratio_and_no_warning() -> None:
 # CHO-2395 - a candidate the critic REJECTED (included with quality_warning by
 # quality_gate_set_node under the locked exhausted semantics) is PUBLISHED,
 # never RENDERED. A question that failed baseline QC must not spend ~22s of
-# gemini-3-pro-image dynamic shared quota (x8 retries, 60s backoff) on an
+# muse-image-1.0 dynamic shared quota (x8 retries, 60s backoff) on an
 # illustration for a question the author is being warned about anyway.
 #
 # The deliberate skip is a THIRD tally: never folded into the over-cap trim

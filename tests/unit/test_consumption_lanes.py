@@ -225,7 +225,7 @@ def _agent_ok(**over) -> dict:
         "reply_text": "Because dividing by a fraction is multiplying by its reciprocal.",
         "grounding": ["01957c8c-a10a-7000-aaaa-a10aa10aa10a"],
         "tool_calls": ["cite_atom"],
-        "model_id": "gemini-2.5-flash",
+        "model_id": "longcat-2.5-preview",
         "prompt_version": "v1",
         "prompt_source": "registry",
         "prompt_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -246,7 +246,7 @@ def test_result_maps_an_ok_turn_onto_the_caller_topic() -> None:
     assert body["conversation_id"] == "01957c8c-4444-7000-aaaa-444444444444"
     assert body["status"] == "OK"
     assert body["error_code"] == ""
-    assert body["generated_by_model_id"] == "gemini-2.5-flash"
+    assert body["generated_by_model_id"] == "longcat-2.5-preview"
     assert body["reply_text"].startswith("Because dividing")
     assert body["completed_at"]
 
@@ -458,7 +458,7 @@ def test_the_turn_survives_the_engines_state_schema_end_to_end() -> None:
                 "reply_text": "Reciprocals.",
                 "grounding": [],
                 "tool_calls": [],
-                "model_id": "gemini-2.5-flash",
+                "model_id": "longcat-2.5-preview",
                 "prompt_version": "v1",
                 "prompt_source": "registry",
             }

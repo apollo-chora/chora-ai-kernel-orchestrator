@@ -148,7 +148,7 @@ def test_map_response_extracts_model_id_from_top_level() -> None:
         {
             "stem": "x",
             "question_type": "mcq",
-            "model_id": "gemini-3.1-pro-preview",
+            "model_id": "longcat-2.5-preview",
             "input_tokens": 100,
             "output_tokens": 20,
         }
@@ -158,7 +158,7 @@ def test_map_response_extracts_model_id_from_top_level() -> None:
         terminal_text=terminal_text,
         agent_role=exe.ROLE_QGEN_QUESTION,
     )
-    assert resp.model_id == "gemini-3.1-pro-preview"
+    assert resp.model_id == "longcat-2.5-preview"
 
 
 def test_map_response_model_id_defaults_empty() -> None:

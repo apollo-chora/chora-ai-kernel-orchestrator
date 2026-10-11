@@ -1031,7 +1031,7 @@ async def render_image_node(
     # the evaluator self-rejected on the last attempt; reaching this node with
     # either signal means terminal, because the gate only routes here then) is
     # PUBLISHED with quality_warning but never rendered: a failed-QC question
-    # must not spend gemini-3-pro-image shared quota. The skip precedes the
+    # must not spend muse-image-1.0 shared quota. The skip precedes the
     # wiring check so a rejected-only spec never makes unconfigured image
     # clients a mis-config, and it is a deliberate THIRD tally, never a render
     # failure.
@@ -1901,7 +1901,7 @@ async def render_image_set_node(
 
     # CHO-2395: a candidate the critic REJECTED is published (with
     # quality_warning, per the locked exhausted semantics) but must not spend
-    # gemini-3-pro-image shared quota (~22s/image) on an illustration for a
+    # muse-image-1.0 shared quota (~22s/image) on an illustration for a
     # question the author is being warned about anyway. Partition BEFORE the
     # caps and the wiring check, so skipped specs neither consume the per-type
     # budget nor turn an unconfigured image client into a mis-config when no

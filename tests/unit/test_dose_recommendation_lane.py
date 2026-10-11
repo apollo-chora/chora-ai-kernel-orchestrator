@@ -198,7 +198,7 @@ def envelope_json(**over: Any) -> str:
             {"atom_id": "bbbb0002-0000-7000-8000-000000000002", "title": "B", "rank_score": 0.9},
         ],
         "rationale": "These follow on from what you did yesterday.",
-        "model_id": "gemini-3.1-pro-preview",
+        "model_id": "longcat-2.5-preview",
         "prompt_version": "v1",
         "prompt_source": "registry",
     }
@@ -223,7 +223,7 @@ def test_result_projects_atoms_to_ids_in_array_order_not_by_rank_score() -> None
         "bbbb0002-0000-7000-8000-000000000002",
     ], "descending rank_score must NOT reorder the list"
     assert body["status"] == WIRE_OK
-    assert body["generated_by_model_id"] == "gemini-3.1-pro-preview"
+    assert body["generated_by_model_id"] == "longcat-2.5-preview"
     assert body["workflow_id"] == DOSE_ID
 
 

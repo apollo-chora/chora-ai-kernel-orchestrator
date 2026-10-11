@@ -54,7 +54,7 @@ def _body(**over: Any) -> dict[str, Any]:
         "upload_id": "up-123",
         "tenant_id": "11111111-1111-1111-1111-111111111111",
         "learner_gcid": "00000000-0000-0000-0000-000000001999",
-        "model_used": "gemini-2.5-pro",
+        "model_used": "longcat-2.5-preview",
         "input_token_count": 1200,
         "output_token_count": 340,
         "analyzed_at": "2026-07-18T09:00:00+00:00",
@@ -74,7 +74,7 @@ async def test_emits_one_d1_agent_decision_row_for_the_diagnoser() -> None:
         body=_body(),
         input_decision="ALLOW",
         output_decision="ALLOW",
-        model_used="gemini-2.5-pro",
+        model_used="longcat-2.5-preview",
         traceparent="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
         tracestate="chora=1",
     )
@@ -124,10 +124,10 @@ async def test_model_used_rides_as_a_namespaced_prompt_condition_attribute() -> 
         body=_body(),
         input_decision="ALLOW",
         output_decision="ALLOW",
-        model_used="gemini-2.5-pro",
+        model_used="longcat-2.5-preview",
     )
-    assert rec.calls[0]["model_id"] == "gemini-2.5-pro"
-    assert rec.calls[0]["prompt_conditions"]["model_used"] == "gemini-2.5-pro"
+    assert rec.calls[0]["model_id"] == "longcat-2.5-preview"
+    assert rec.calls[0]["prompt_conditions"]["model_used"] == "longcat-2.5-preview"
 
 
 @pytest.mark.asyncio

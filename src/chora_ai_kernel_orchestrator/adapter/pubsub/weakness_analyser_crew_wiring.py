@@ -117,7 +117,7 @@ logger = logging.getLogger(__name__)
 # Attribution only: the analyzed.v1 ``model_used`` field. The agent chooses the
 # model through the gateway; the completion does not carry it back.
 ENV_DIAGNOSER_MODEL_ID = "WEAKNESS_DIAGNOSER_MODEL_ID"
-_DEFAULT_DIAGNOSER_MODEL_ID = "gemini-2.5-pro"
+_DEFAULT_DIAGNOSER_MODEL_ID = "longcat-2.5-preview"
 
 # ADR-254 D6 addendum: practice_test ``max_questions`` (default 8).
 ENV_PRACTICE_TEST_MAX_QUESTIONS = "WEAKNESS_PRACTICE_TEST_MAX_QUESTIONS"

@@ -66,9 +66,9 @@ def test_model_broker_gateway_pb2_messages_constructible() -> None:
         invocation_id="01HXX",
         tenant_id="t1",
         agid="a1",
-        model_id="gemini-2.5-flash",
+        model_id="longcat-2.5-preview",
     )
-    assert msg.model_id == "gemini-2.5-flash"
+    assert msg.model_id == "longcat-2.5-preview"
 
 
 def test_agent_executor_stub_constructs_over_unconnected_channel() -> None:

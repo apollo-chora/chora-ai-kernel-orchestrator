@@ -199,7 +199,7 @@ def _assemble(monkeypatch: pytest.MonkeyPatch, *, runtime: Any, max_questions: i
         db_conn=_FakeConn(),
         screener=_FakeScreener(),
         checkpointer=None,
-        diagnoser_model_id="gemini-2.5-pro",
+        diagnoser_model_id="longcat-2.5-preview",
         guardrail_template=TEMPLATE,
         out_publisher=_FakeOutPublisher(),
         runtime=runtime,

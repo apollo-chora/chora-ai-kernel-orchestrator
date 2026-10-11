@@ -148,7 +148,7 @@ class TestEncodeAiAssistCompleted:
             "generated_count": 3,
             "screening_decision": "ALLOW",
             "screening_explanation": "clean",
-            "model_used": "gemini-2.5-flash",
+            "model_used": "longcat-2.5-preview",
             "input_token_count": 120,
             "output_token_count": 340,
             "mana_charged": 5,
@@ -175,7 +175,7 @@ class TestEncodeAiAssistCompleted:
         # Field 5 — screening_explanation.
         assert by_field[5]["value"].decode("utf-8") == "clean"
         # Field 6 — model_used.
-        assert by_field[6]["value"].decode("utf-8") == "gemini-2.5-flash"
+        assert by_field[6]["value"].decode("utf-8") == "longcat-2.5-preview"
         # Field 7 — input_token_count (varint).
         assert by_field[7]["wire"] == 0
         assert by_field[7]["value"] == 120

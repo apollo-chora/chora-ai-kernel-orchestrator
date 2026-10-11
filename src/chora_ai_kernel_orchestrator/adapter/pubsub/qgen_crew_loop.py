@@ -39,7 +39,7 @@ ENV_CALLBACK_TIMEOUT = "QGEN_CREW_CALLBACK_TIMEOUT_SECONDS"
 
 # Per-message callback wait. The qgen crew runs a multi-attempt actor↔critic
 # loop (max 4 attempts × {assurance + generation + evaluation + critic}); with
-# the high tier (gemini-3.1-pro-preview generation+evaluation ~15s each) a
+# the high tier (longcat-2.5-preview generation+evaluation ~15s each) a
 # 3-attempt run exceeds 120s wall-clock. The callback timeout is the real
 # bound (NATS redelivers an un-acked message after its ack wait); 300s gives
 # the looped high-tier run comfortable headroom. Tunable via
