@@ -8,11 +8,11 @@
 # primary_model as the gateway logical_model_id + fallback_models as the
 # agent-declared fallback chain; the gateway HONOURS it.
 #
-#   CHEAP = moderator → gemini-3.5-flash → gemini-2.5-flash
+#   CHEAP = moderator → longcat-2.5-preview → longcat-2.5-preview
 agent: oe_moderator
 sub_agents:
   moderator:
     tier: cheap
-    primary_model: gemini-3.5-flash
-    fallback_models: [gemini-2.5-flash]
+    primary_model: longcat-2.5-preview
+    fallback_models: [longcat-2.5-preview]
     prompt_version: v1
