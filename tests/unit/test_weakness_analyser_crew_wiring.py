@@ -103,9 +103,39 @@ async def test_none_when_template_unresolved(monkeypatch: pytest.MonkeyPatch) ->
 
 async def test_none_when_dsn_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NATS_URL", "nats://nats:4222")
+    monkeypatch.setenv("WEAKNESS_DIAGNOSER_MODEL_ID", "test-diag-model")
     monkeypatch.setattr(wiring_mod, "_resolve_weakness_guardrail_template", lambda screener: TEMPLATE)
     monkeypatch.setattr(secrets_mod, "resolve_dsn", lambda: "")
     assert await build_weakness_analyser_crew_from_env(screener=_FakeScreener(), runtime=_FakeRuntime()) is None
+
+
+async def test_none_when_diagnoser_model_id_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WEAKNESS_DIAGNOSER_MODEL_ID is REQUIRED (no literal fallback): an enabled
+    lane with it unset must abort (None -> require_lane_built refuses to start),
+    never stamp a hard-coded default as the analyzed.v1 model_used."""
+    monkeypatch.setenv("NATS_URL", "nats://nats:4222")
+    monkeypatch.delenv("WEAKNESS_DIAGNOSER_MODEL_ID", raising=False)
+    monkeypatch.setattr(wiring_mod, "_resolve_weakness_guardrail_template", lambda screener: TEMPLATE)
+    assert await build_weakness_analyser_crew_from_env(screener=_FakeScreener(), runtime=_FakeRuntime()) is None
+
+
+async def test_diagnoser_model_id_flows_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The configured WEAKNESS_DIAGNOSER_MODEL_ID is read here and handed to the
+    live builder as the diagnoser model id (the analyzed.v1 model_used)."""
+    captured: dict[str, Any] = {}
+
+    async def _fake_build_graph_live(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setenv("NATS_URL", "nats://nats:4222")
+    monkeypatch.setenv("WEAKNESS_DIAGNOSER_MODEL_ID", "configured-diag-model")
+    monkeypatch.setattr(wiring_mod, "_resolve_weakness_guardrail_template", lambda screener: TEMPLATE)
+    monkeypatch.setattr(secrets_mod, "resolve_dsn", lambda: "postgres://fake-dsn")
+    monkeypatch.setattr(wiring_mod, "_build_graph_live", _fake_build_graph_live)
+
+    assert await build_weakness_analyser_crew_from_env(screener=_FakeScreener(), runtime=_FakeRuntime()) is not None
+    assert captured["diagnoser_model_id"] == "configured-diag-model"
 
 
 def test_no_gateway_client_is_imported_by_the_wiring() -> None:
@@ -199,7 +229,7 @@ def _assemble(monkeypatch: pytest.MonkeyPatch, *, runtime: Any, max_questions: i
         db_conn=_FakeConn(),
         screener=_FakeScreener(),
         checkpointer=None,
-        diagnoser_model_id="longcat-2.5-preview",
+        diagnoser_model_id="test-diag-model",
         guardrail_template=TEMPLATE,
         out_publisher=_FakeOutPublisher(),
         runtime=runtime,
