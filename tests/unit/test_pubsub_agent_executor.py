@@ -234,7 +234,7 @@ async def test_it_maps_an_agent_payload_through_the_shared_mapper() -> None:
         {
             "criterion_scores": [{"criterion_id": "c1", "score": 4.0}],
             "comment": "well argued",
-            "model_id": "longcat-2.5-preview",
+            "model_id": "test-text-model",
             "response_id": "resp-77",
             "input_tokens": 812,
             "output_tokens": 143,

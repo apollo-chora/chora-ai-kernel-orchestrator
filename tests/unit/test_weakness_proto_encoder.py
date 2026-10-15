@@ -84,7 +84,7 @@ def _body() -> dict:
         "upload_id": "01970000-0000-7000-a000-000000000001",
         "tenant_id": "01970000-0000-7000-8000-000000000001",
         "learner_gcid": "01970000-0000-7000-9000-000000000001",
-        "model_used": "longcat-2.5-preview-preview",
+        "model_used": "test-text-model",
         "input_token_count": 1200,
         "output_token_count": 340,
         "analyzed_at": "2026-06-09T12:00:05Z",
@@ -127,7 +127,7 @@ def test_encode_weakness_analyzed_round_trips_top_level() -> None:
     assert top[2][0].decode() == "01970000-0000-7000-a000-000000000001"  # upload_id @2
     assert top[3][0].decode() == "01970000-0000-7000-8000-000000000001"  # tenant_id @3
     assert top[4][0].decode() == "01970000-0000-7000-9000-000000000001"  # learner_gcid @4
-    assert top[6][0].decode() == "longcat-2.5-preview-preview"  # model_used @6
+    assert top[6][0].decode() == "test-text-model"  # model_used @6
     assert top[7][0] == 1200  # input_token_count @7
     assert top[8][0] == 340  # output_token_count @8
     assert 9 in top  # analyzed_at Timestamp @9

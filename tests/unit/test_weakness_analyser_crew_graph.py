@@ -178,7 +178,7 @@ class FakeDiagnoser:
             ]
         }
         return DiagnoseResult(
-            diagnosis_json=json.dumps(diagnosis), model_used="longcat-diag", input_tokens=100, output_tokens=50
+            diagnosis_json=json.dumps(diagnosis), model_used="test-diag-model", input_tokens=100, output_tokens=50
         )
 
 
@@ -221,7 +221,7 @@ class FakeDiagnoserWithStruggle(FakeDiagnoser):
             ]
         }
         return DiagnoseResult(
-            diagnosis_json=json.dumps(diagnosis), model_used="longcat-diag", input_tokens=1, output_tokens=1
+            diagnosis_json=json.dumps(diagnosis), model_used="test-diag-model", input_tokens=1, output_tokens=1
         )
 
 
@@ -560,7 +560,7 @@ def test_emit_evidence_records_d1_with_run_traceparent_and_body() -> None:
     assert call["body"]["upload_id"] == "upload-1"
     assert call["input_decision"] == "ALLOW"
     assert call["output_decision"] == "ALLOW"
-    assert call["model_used"] == "longcat-diag"
+    assert call["model_used"] == "test-diag-model"
     assert call["traceparent"] == tp
     assert call["tracestate"] == "chora=1"
 

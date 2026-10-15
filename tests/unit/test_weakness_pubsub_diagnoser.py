@@ -56,7 +56,7 @@ class _RecordingExecutor:
 def _adapter(executor: Any, thread: str = _THREAD) -> PubSubDiagnoserAdapter:
     return PubSubDiagnoserAdapter(
         executor=executor,
-        model_id="longcat-2.5-preview",
+        model_id="test-text-model",
         thread_id_provider=lambda: thread,
     )
 
@@ -148,7 +148,7 @@ async def test_the_agents_answer_maps_onto_the_port_result() -> None:
     result = await _diagnose(_adapter(executor))
 
     assert result.diagnosis_json == '{"edges": []}'
-    assert result.model_used == "longcat-2.5-preview"
+    assert result.model_used == "test-text-model"
     assert result.input_tokens == 200
     assert result.output_tokens == 100
 
