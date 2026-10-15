@@ -150,7 +150,7 @@ async def test_extract_refuses_a_non_gs_uri_before_dispatching() -> None:
 def _diagnoser(executor: Any) -> PubSubDiagnoserAdapter:
     return PubSubDiagnoserAdapter(
         executor=executor,
-        model_id="gemini-2.5-pro",
+        model_id="test-text-model",
         thread_id_provider=lambda: _THREAD,
     )
 

@@ -722,7 +722,7 @@ async def test_agent_decision_carries_model_id_from_agent_report() -> None:
             ROLE_GENERATE: [_good_oe_payload()],
             ROLE_CRITIQUE: [_critic_accept()],
         },
-        model_id="gemini-3.1-pro-preview",
+        model_id="test-text-model",
     )
     guardrail = _FakeGuardrail()
     publisher = _FakePublisher()
@@ -733,7 +733,7 @@ async def test_agent_decision_carries_model_id_from_agent_report() -> None:
     await runner.handle_started(_started_event())
 
     assert len(adl_emitter.emitted) == 2
-    assert all(e["model_id"] == "gemini-3.1-pro-preview" for e in adl_emitter.emitted)
+    assert all(e["model_id"] == "test-text-model" for e in adl_emitter.emitted)
 
 
 @pytest.mark.asyncio

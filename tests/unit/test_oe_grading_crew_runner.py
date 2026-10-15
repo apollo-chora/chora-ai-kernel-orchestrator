@@ -65,7 +65,7 @@ def _graded(qid: str, points: float, flagged: bool = False) -> GradedOEQuestion:
         points_possible=5,
         criterion_scores_json=json.dumps([{"criterion_id": "c1", "score": 4.0}]),
         comment="ok",
-        grading_model_id="gemini-3.1-pro-preview",
+        grading_model_id="test-text-model",
         grading_response_id="resp-1",
         quality_flagged=flagged,
         attempt_count=1,
@@ -80,7 +80,7 @@ def _terminal(*, outcome: str = "SUCCESS", graded: list[GradedOEQuestion] | None
         "gcid": "learner-1",
         "graded": graded if graded is not None else [_graded("a", 4.0)],
         "overall_comment": "Overall 80%; strong work.",
-        "overall_comment_model_id": "gemini-3.1-pro-preview",
+        "overall_comment_model_id": "test-text-model",
         "outcome": outcome,
         "failure_message": "",
     }
@@ -313,7 +313,9 @@ async def test_oe_agent_decisions_carry_model_id() -> None:
     counts per model. Evaluator: the grading model off the recorded grades;
     moderator: the moderation hop's model off the terminal state."""
     t = _terminal_with_trace()
-    t["moderation_result"] = ModerationResult(accepted=True, model_id="gemini-3-pro")
+    # A sentinel, not a real route: the deployment serves one text model, so
+    # distinct values are what prove the per-agent attribution asserted below.
+    t["moderation_result"] = ModerationResult(accepted=True, model_id="stub-moderator-model")
     graph = _FakeGraph(terminal=t)
     pub = _FakePublisher()
     adl = _FakeAgentDecisionLogEmitter()
@@ -322,8 +324,8 @@ async def test_oe_agent_decisions_carry_model_id() -> None:
     await runner.handle_requested(_event())
 
     by_agid = {e["agid"]: e for e in adl.emitted}
-    assert by_agid["oe_evaluator"]["model_id"] == "gemini-3.1-pro-preview"
-    assert by_agid["oe_moderator"]["model_id"] == "gemini-3-pro"
+    assert by_agid["oe_evaluator"]["model_id"] == "test-text-model"
+    assert by_agid["oe_moderator"]["model_id"] == "stub-moderator-model"
 
 
 @pytest.mark.asyncio

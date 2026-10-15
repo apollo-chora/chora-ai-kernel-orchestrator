@@ -125,9 +125,9 @@ def test_parse_filters_low_confidence_and_builds_edges() -> None:
             _edge("noise concept", 0.2, 0.9),  # below MIN_CONFIDENCE -> dropped
         ]
     }
-    res = parse_analysis(json.dumps(payload), model_used="gemini-3-pro", input_tokens=10, output_tokens=20)
+    res = parse_analysis(json.dumps(payload), model_used="test-text-model", input_tokens=10, output_tokens=20)
     assert isinstance(res, AnalysisResult)
-    assert res.model_used == "gemini-3-pro"
+    assert res.model_used == "test-text-model"
     assert res.input_tokens == 10 and res.output_tokens == 20
     assert len(res.edges) == 1
     edge = res.edges[0]

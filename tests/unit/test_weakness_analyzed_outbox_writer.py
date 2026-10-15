@@ -114,7 +114,7 @@ def _body(**overrides: Any) -> dict[str, Any]:
         "upload_id": "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee",
         "tenant_id": "tenant-9",
         "learner_gcid": "learner-1",
-        "model_used": "gemini-2.5-pro",
+        "model_used": "test-text-model",
         "input_token_count": 1200,
         "output_token_count": 340,
         "analyzed_at": "2026-06-09T10:00:00+00:00",
@@ -225,7 +225,7 @@ class TestPublish:
         assert _first_str(fields, 4) == "learner-1"
         # field 5 = repeated ExtractedGrowthEdge (one here), field 6 = model_used.
         assert len(fields[5]) == 1
-        assert _first_str(fields, 6) == "gemini-2.5-pro"
+        assert _first_str(fields, 6) == "test-text-model"
         # nested edge: field 1 = concept_label.
         edge_fields = _walk_proto(fields[5][0]["value"])
         assert _first_str(edge_fields, 1) == "causes of riverine flooding"

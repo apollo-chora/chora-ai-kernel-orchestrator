@@ -196,7 +196,7 @@ def _render_ok(uri: str) -> str:
         {
             "image_uri": uri,
             "mime_type": "image/png",
-            "model_id": "gemini-3-pro-image",
+            "model_id": "test-image-model",
             "prompt_version": "v1",
             "bytes": 3,
             "edit": False,

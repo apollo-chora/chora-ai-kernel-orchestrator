@@ -40,8 +40,9 @@ lifespan ABORTS the lane as enabled-but-unbuildable):
 
     CHORA_PUBSUB_PROJECT            Pub/Sub host project (chora-489812)
     WEAKNESS_ANALYSER_SUBSCRIPTION  weakness_doc.uploaded.v1 subscription
-    WEAKNESS_DIAGNOSER_MODEL_ID     attribution only (analyzed.v1 model_used);
-                                    the agent picks the model through the gateway
+    WEAKNESS_DIAGNOSER_MODEL_ID     REQUIRED, attribution only (analyzed.v1
+                                    model_used); the agent picks the model
+                                    through the gateway
     WEAKNESS_PRACTICE_TEST_MAX_QUESTIONS  optional, default 8 (the agent's default)
     WEAKNESS_OUTPUT_PRICE_PRACTICE_TEST / _STUDY_AIDS  panel DISPLAY prices
                                     (unset -> 0/free + loud log; not the authority)
@@ -115,9 +116,11 @@ from chora_ai_kernel_orchestrator.orchestrators.weakness_analyser_crew_runner im
 logger = logging.getLogger(__name__)
 
 # Attribution only: the analyzed.v1 ``model_used`` field. The agent chooses the
-# model through the gateway; the completion does not carry it back.
+# model through the gateway; the completion does not carry it back. REQUIRED:
+# there is no literal fallback - an unset var aborts the enabled lane, because
+# the analyzed envelope must attribute a real configured model, never a
+# hard-coded default.
 ENV_DIAGNOSER_MODEL_ID = "WEAKNESS_DIAGNOSER_MODEL_ID"
-_DEFAULT_DIAGNOSER_MODEL_ID = "gemini-2.5-pro"
 
 # ADR-254 D6 addendum: practice_test ``max_questions`` (default 8).
 ENV_PRACTICE_TEST_MAX_QUESTIONS = "WEAKNESS_PRACTICE_TEST_MAX_QUESTIONS"
@@ -243,7 +246,18 @@ async def build_weakness_analyser_crew_from_env(
         )
         return None
 
-    diagnoser_model_id = (os.getenv(ENV_DIAGNOSER_MODEL_ID) or "").strip() or _DEFAULT_DIAGNOSER_MODEL_ID
+    diagnoser_model_id = (os.getenv(ENV_DIAGNOSER_MODEL_ID) or "").strip()
+    if not diagnoser_model_id:
+        # REQUIRED (no literal fallback): the analyzed.v1 model_used attribution
+        # must name a real configured model. Returning None makes main.py's
+        # require_lane_built abort the enabled lane (fail loud), never a silent
+        # hard-coded default.
+        logger.error(
+            "weakness_analyser_wiring.skipped: %s is unset (required) - the "
+            "analyzed.v1 model_used attribution needs a real model id",
+            ENV_DIAGNOSER_MODEL_ID,
+        )
+        return None
     practice_test_max_questions = _resolve_practice_test_max_questions()
 
     from chora_ai_kernel_orchestrator.adapter.secrets import resolve_dsn

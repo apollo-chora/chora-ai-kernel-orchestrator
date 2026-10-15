@@ -146,7 +146,7 @@ def test_kg_result_maps_the_agents_envelope_onto_the_frozen_emitted_body() -> No
                 "rationale": "related",
             }
         ],
-        "model_id": "gemini-2.5-flash",
+        "model_id": "test-text-model",
         "prompt_version": "v3",
         "prompt_source": "embedded_fallback",
     }
@@ -161,7 +161,7 @@ def test_kg_result_maps_the_agents_envelope_onto_the_frozen_emitted_body() -> No
     assert body["tenant_id"] == TENANT and body["learner_gcid"] == GCID
     assert body["familiar_id"] == "fam-1" and body["map_theme"] == "cells"
     assert body["focal_concept_id"] == "c-osmosis" and body["run_id"] == EVENT
-    assert body["model_used"] == "gemini-2.5-flash"
+    assert body["model_used"] == "test-text-model"
     assert body["concepts"] == [{"title": "Tonicity", "rationale": "next step", "atom_refs": ["atom-1"]}]
     assert body["edges"] == [
         {
@@ -283,7 +283,7 @@ def _env(**over: object) -> str:
         "reply_text": "You kept circling back to osmosis; let us pin tonicity next.",
         "grounding": [],
         "tool_calls": [],
-        "model_id": "gemini-2.5-flash",
+        "model_id": "test-text-model",
         "prompt_version": "reflect-v1",
         "prompt_source": "embedded_fallback",
     }
@@ -302,7 +302,7 @@ def test_reflection_result_publishes_the_synthesized_body_with_verbatim_echoes()
     body = ev.body
     assert body["synthesis_text"].startswith("You kept circling")
     assert body["nothing_to_say"] is False
-    assert body["generated_by_run_id"] == EVENT and body["generated_by_model_id"] == "gemini-2.5-flash"
+    assert body["generated_by_run_id"] == EVENT and body["generated_by_model_id"] == "test-text-model"
     assert body["prompt_version"] == "reflect-v1"
     assert body["content_hash"] == "h-123" and body["root_concept_id"] == "c-root"
     assert body["tenant_id"] == TENANT and body["learner_gcid"] == GCID
@@ -331,7 +331,7 @@ def test_reflection_decline_publishes_nothing_to_say() -> None:
     )
     assert ev is not None
     assert ev.body["nothing_to_say"] is True and ev.body["synthesis_text"] == ""
-    assert ev.body["generated_by_model_id"] == "gemini-2.5-flash"
+    assert ev.body["generated_by_model_id"] == "test-text-model"
 
 
 @pytest.mark.parametrize("case", ["no_model", "too_long", "empty", "refusal", "failed", "not_json"])

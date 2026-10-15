@@ -371,11 +371,11 @@ class TestEmit:
             quality_warning=False,
             chora_imda_dimension="accountability",
             occurred_at="2026-05-17T15:30:00+00:00",
-            model_id="gemini-3.1-pro-preview",
+            model_id="test-text-model",
         )
         params = _decode_row(conn.cur.executed[0])
         d = _decode_proto_payload(params["payload"])
-        assert d["model_id"] == "gemini-3.1-pro-preview"
+        assert d["model_id"] == "test-text-model"
 
     @pytest.mark.asyncio
     async def test_payload_proto_model_id_omitted_when_blank(self) -> None:

@@ -36,7 +36,7 @@ ENV_CALLBACK_TIMEOUT = "OE_GRADING_CREW_CALLBACK_TIMEOUT_SECONDS"
 
 # Per-message callback wait. The OE crew runs a per-OE-answer evaluator↔moderator
 # loop (≤2 iterations) across multiple answers + an assess_summary pass; with the
-# high-tier evaluator (gemini-3.1-pro-preview) a multi-answer looped run far
+# high-tier evaluator a multi-answer looped run far
 # exceeds the 120s default. The callback timeout is the real bound (NATS
 # redelivers an un-acked message after its ack wait); 300s gives headroom.
 # Tunable via OE_GRADING_CREW_CALLBACK_TIMEOUT_SECONDS.

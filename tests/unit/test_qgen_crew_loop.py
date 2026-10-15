@@ -76,7 +76,7 @@ class TestFromEnv:
 class TestCallbackTimeout:
     """The per-message callback wait must accommodate the multi-attempt
     high-tier actor↔critic loop (the prior hardcoded 120s timed out at
-    ~3 attempts of gemini-3.1-pro-preview). Pub/Sub auto-extends the
+    ~3 attempts of the high-tier text model). Pub/Sub auto-extends the
     message lease while the callback runs, so this is the real bound."""
 
     def test_default_is_generous(self) -> None:
