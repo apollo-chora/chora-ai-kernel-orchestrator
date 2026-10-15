@@ -1,18 +1,16 @@
-# oe_moderator — per-sub-agent model + prompt config (ADR-172 §D2).
+# oe_moderator — per-sub-agent prompt config (ADR-172 §D2).
 #
 # AGENT-DRIVEN tiering (mirrors qgen_critic, CR qgen 2026-06-01): the moderator
 # is a single tool-free JUDGE over the evaluator's score+rationale+rubric —
 # accept | reject+feedback for rubric fidelity, hallucination, internal
 # consistency. It does NOT re-grade. Like qgen_critic it is the CHEAP text tier
-# (a fast accept/reject + feedback judge over one structured input). It sends
-# primary_model as the gateway logical_model_id + fallback_models as the
-# agent-declared fallback chain; the gateway HONOURS it.
-#
-#   CHEAP = moderator → longcat-2.5-preview → longcat-2.5-preview
+# (a fast accept/reject + feedback judge over one structured input). The model is
+# ENV-DRIVEN (the downstream oe-grading agent resolves it from its moderator
+# MODEL env var) and sent as the gateway logical_model_id plus the
+# agent-declared fallback chain; the gateway HONOURS it. This YAML carries only
+# the prompt version.
 agent: oe_moderator
 sub_agents:
   moderator:
     tier: cheap
-    primary_model: longcat-2.5-preview
-    fallback_models: [longcat-2.5-preview]
     prompt_version: v1
