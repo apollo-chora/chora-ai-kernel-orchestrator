@@ -101,7 +101,7 @@ def _fire_and_forget(coro: Any) -> None:
 def _broker_sequence_id(msg: Any) -> str:
     """The broker's own identity for a delivered message, or ``""``.
 
-    The JetStream metadata's stream/consumer sequence pair. Used as the DLQ
+    The JetStream metadata's stream name and stream sequence. Used as the DLQ
     message id when the producer set no ``Chora-Event-Id``, so a replay after
     a lost ACK is still recognised as a duplicate of the DLQ copy already
     written. Empty when the message carries no readable metadata, which means
@@ -113,11 +113,14 @@ def _broker_sequence_id(msg: Any) -> str:
         # identity either, so the DLQ copy carries no dedup id.
         return ""
     seq = getattr(md, "sequence", None)
-    stream = getattr(seq, "stream", 0) if seq is not None else 0
-    consumer = getattr(seq, "consumer", 0) if seq is not None else 0
-    if not stream and not consumer:
+    stream_seq = getattr(seq, "stream", 0) if seq is not None else 0
+    if not stream_seq:
         return ""
-    return f"{stream}.{consumer}"
+    # The CONSUMER sequence increments on every redelivery, so it must not be
+    # part of the id: a replay after a lost ACK would then look like a new
+    # message. The STREAM sequence is the message's own stable identity.
+    stream_name = getattr(md, "stream", "")
+    return f"{stream_name}.{stream_seq}" if stream_name else f"{stream_seq}"
 
 
 class NatsMessage:

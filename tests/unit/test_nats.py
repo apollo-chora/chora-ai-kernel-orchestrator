@@ -104,23 +104,37 @@ def test_an_empty_schedule_is_refused() -> None:
 
 
 class _MsgWithSequence:
-    """Stands in for a JetStream message carrying a broker sequence pair."""
+    """Stands in for a JetStream message carrying broker metadata."""
 
-    def __init__(self, stream: int, consumer: int) -> None:
-        self._seq = SimpleNamespace(stream=stream, consumer=consumer)
+    def __init__(self, stream_name: str, stream_seq: int, consumer_seq: int) -> None:
+        self._md = SimpleNamespace(
+            stream=stream_name,
+            sequence=SimpleNamespace(stream=stream_seq, consumer=consumer_seq),
+        )
 
     @property
     def metadata(self) -> object:
-        return SimpleNamespace(sequence=self._seq)
+        return self._md
 
 
-def test_the_dlq_id_falls_back_to_the_broker_sequence_without_an_event_id() -> None:
-    """A replay after a lost ACK must still be suppressed as a duplicate."""
-    msg = _MsgWithSequence(stream=42, consumer=7)
-    headers = _loop("chora.test")._build_dlq_headers(  # noqa: SLF001
-        msg,
-        NatsMessage(msg),
-        durable="chora-ai-kernel-chora-test",
-        cause=RuntimeError("boom"),
+def test_the_dlq_id_is_stable_across_redeliveries() -> None:
+    """The consumer sequence increments per delivery; the stream sequence does not.
+
+    A DLQ id that included the consumer sequence would change on every
+    redelivery, so a replay after a lost ACK would not be recognised as a
+    duplicate of the copy already written.
+    """
+    first = _MsgWithSequence(stream_name="CHORA_EVENTS", stream_seq=42, consumer_seq=7)
+    redelivered = _MsgWithSequence(stream_name="CHORA_EVENTS", stream_seq=42, consumer_seq=8)
+    loop = _loop("chora.test")
+    headers_first = loop._build_dlq_headers(  # noqa: SLF001
+        first, NatsMessage(first), durable="chora-ai-kernel-chora-test", cause=RuntimeError("boom")
     )
-    assert headers["Nats-Msg-Id"] == "42.7.dlq.chora-ai-kernel-chora-test"
+    headers_again = loop._build_dlq_headers(  # noqa: SLF001
+        redelivered, NatsMessage(redelivered), durable="chora-ai-kernel-chora-test", cause=RuntimeError("boom")
+    )
+    assert (
+        headers_first["Nats-Msg-Id"]
+        == headers_again["Nats-Msg-Id"]
+        == ("CHORA_EVENTS.42.dlq.chora-ai-kernel-chora-test")
+    )
