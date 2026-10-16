@@ -101,3 +101,26 @@ def test_an_empty_schedule_is_refused() -> None:
             subscriber=None,
             backoff_s=(),
         )
+
+
+class _MsgWithSequence:
+    """Stands in for a JetStream message carrying a broker sequence pair."""
+
+    def __init__(self, stream: int, consumer: int) -> None:
+        self._seq = SimpleNamespace(stream=stream, consumer=consumer)
+
+    @property
+    def metadata(self) -> object:
+        return SimpleNamespace(sequence=self._seq)
+
+
+def test_the_dlq_id_falls_back_to_the_broker_sequence_without_an_event_id() -> None:
+    """A replay after a lost ACK must still be suppressed as a duplicate."""
+    msg = _MsgWithSequence(stream=42, consumer=7)
+    headers = _loop("chora.test")._build_dlq_headers(  # noqa: SLF001
+        msg,
+        NatsMessage(msg),
+        durable="chora-ai-kernel-chora-test",
+        cause=RuntimeError("boom"),
+    )
+    assert headers["Nats-Msg-Id"] == "42.7.dlq.chora-ai-kernel-chora-test"

@@ -19,6 +19,27 @@ every dispatch lane publish and consume through NATS JetStream:
 
 Connection is lazy: nothing opens a socket until ``start()`` so unit tests
 and ``/healthz`` stay cheap.
+
+## The dead-letter contract
+
+The DLQ transfer is **at-least-once**, and a terminal DLQ failure requires
+operator intervention. Both are deliberate, and both are visible:
+
+* The DLQ copy is published before the original is ACKed, so a crash between
+  the two leaves the original to be redelivered and the DLQ copy written
+  twice. Consumers of a DLQ subject must be idempotent.
+* ``NatsMessage.ack`` schedules the ACK without awaiting the broker's
+  confirmation, so the ``nats.consumer.dead_lettered`` log means "scheduled",
+  not "settled". This matches ``chora-common/eventbus``, which also does not
+  confirm the ACK.
+* At the redelivery ceiling the broker will not deliver the message again, so
+  if every DLQ publish attempt fails the message is neither ACKed nor
+  redelivered. ``nats.consumer.dlq_publish_failed`` is the operator signal
+  for that case; there is no automatic recovery from it.
+
+What is guaranteed is that a message is never ACKed before its DLQ copy is on
+the broker, and that a transient DLQ publish failure is retried on this loop's
+own backoff schedule rather than abandoned.
 """
 
 from __future__ import annotations
@@ -75,6 +96,28 @@ def _fire_and_forget(coro: Any) -> None:
             logger.warning("nats.ack_nack_failed", exc_info=t.exception())
 
     task.add_done_callback(_log_error)
+
+
+def _broker_sequence_id(msg: Any) -> str:
+    """The broker's own identity for a delivered message, or ``""``.
+
+    The JetStream metadata's stream/consumer sequence pair. Used as the DLQ
+    message id when the producer set no ``Chora-Event-Id``, so a replay after
+    a lost ACK is still recognised as a duplicate of the DLQ copy already
+    written. Empty when the message carries no readable metadata, which means
+    no broker identity is available either.
+    """
+    try:
+        md = msg.metadata
+    except Exception:  # fail-loud-exempt: no readable metadata means no broker
+        # identity either, so the DLQ copy carries no dedup id.
+        return ""
+    seq = getattr(md, "sequence", None)
+    stream = getattr(seq, "stream", 0) if seq is not None else 0
+    consumer = getattr(seq, "consumer", 0) if seq is not None else 0
+    if not stream and not consumer:
+        return ""
+    return f"{stream}.{consumer}"
 
 
 class NatsMessage:
@@ -425,8 +468,14 @@ class NatsConsumerLoop:
         hdr.pop("Nats-Msg-Id", None)
         event_id = hdr.get("Chora-Event-Id", "")
         if event_id:
-            dlq_id = f"{event_id}.dlq.{durable}"
-            hdr["Nats-Msg-Id"] = dlq_id
+            hdr["Nats-Msg-Id"] = f"{event_id}.dlq.{durable}"
+        else:
+            # No application event id: fall back to the broker's own identity
+            # for this delivery, so a replay after a lost ACK is still
+            # suppressed as a duplicate of the copy already written.
+            broker_id = _broker_sequence_id(msg)
+            if broker_id:
+                hdr["Nats-Msg-Id"] = f"{broker_id}.dlq.{durable}"
 
         hdr["Chora-Dlq-Source-Subject"] = wrapped.subject
         hdr["Chora-Dlq-Consumer"] = durable
