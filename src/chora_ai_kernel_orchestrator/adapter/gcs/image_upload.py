@@ -188,9 +188,7 @@ class GcsImageUploadAdapter:
             content_type=content_type or "image/png",
         )
         gs_uri = f"gs://{self._bucket_name}/{key}"
-        signed = self._resolve_signing_client().presigned_get_object(
-            self._bucket_name, key, expires=_SIGNED_URL_EXPIRY
-        )
+        signed = self._resolve_signing_client().presigned_get_object(self._bucket_name, key, expires=_SIGNED_URL_EXPIRY)
         return gs_uri, str(signed)
 
     def _resolve_client(self) -> Any:
@@ -245,9 +243,7 @@ def _split_gs_uri(gs_uri: str) -> tuple[str, str]:
             rest = text[len(scheme) :]
             bucket, _, key = rest.partition("/")
             if not bucket or not key:
-                raise ValueError(
-                    f"sign_read_url: {scheme} reference needs a bucket and an object: {text[:120]!r}"
-                )
+                raise ValueError(f"sign_read_url: {scheme} reference needs a bucket and an object: {text[:120]!r}")
             return bucket, key
     raise ValueError(f"sign_read_url: not a gs:// or s3:// reference: {text[:120]!r}")
 

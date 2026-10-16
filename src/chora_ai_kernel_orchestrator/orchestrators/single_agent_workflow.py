@@ -504,9 +504,20 @@ class SingleAgentRequestSubscriber:
                 raise ValueError("expected JSON object body")
             body: dict[str, Any] = decoded
         except (ValueError, UnicodeDecodeError) as exc:
-            logger.exception(
-                "single_agent_subscriber.decode_failed", extra={"lane": self._contract.name, "err": str(exc)}
-            )
+            delivery_count = getattr(msg, "delivery_count", 1)
+            if delivery_count <= 1:
+                logger.exception(
+                    "single_agent_subscriber.decode_failed", extra={"lane": self._contract.name, "err": str(exc)}
+                )
+            else:
+                logger.warning(
+                    "single_agent_subscriber.decode_failed_retry",
+                    extra={
+                        "lane": self._contract.name,
+                        "delivery_count": delivery_count,
+                        "err": f"{type(exc).__name__}: {exc}",
+                    },
+                )
             msg.nack()
             return
         attrs = dict(msg.attributes or {})
@@ -535,10 +546,22 @@ class SingleAgentRequestSubscriber:
 
         try:
             ran = await self._inbox.process(key=dedup_key, ttl=self._ttl, fn=_invoke)
-        except Exception:
-            logger.exception(
-                "single_agent_subscriber.run_failed", extra={"lane": self._contract.name, "dedup_key": dedup_key}
-            )
+        except Exception as exc:
+            delivery_count = getattr(msg, "delivery_count", 1)
+            if delivery_count <= 1:
+                logger.exception(
+                    "single_agent_subscriber.run_failed", extra={"lane": self._contract.name, "dedup_key": dedup_key}
+                )
+            else:
+                logger.warning(
+                    "single_agent_subscriber.run_failed_retry",
+                    extra={
+                        "lane": self._contract.name,
+                        "dedup_key": dedup_key,
+                        "delivery_count": delivery_count,
+                        "err": f"{type(exc).__name__}: {exc}",
+                    },
+                )
             msg.nack()
             return
         msg.ack()
