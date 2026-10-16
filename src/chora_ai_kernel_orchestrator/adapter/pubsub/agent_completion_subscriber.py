@@ -83,10 +83,21 @@ class AgentCompletionSubscriber:
             if not isinstance(decoded, dict):
                 raise ValueError("expected a JSON object body")
         except (ValueError, UnicodeDecodeError) as exc:
-            logger.exception(
-                "agent_completion_subscriber.decode_failed",
-                extra={"err": str(exc), "attributes": dict(msg.attributes)},
-            )
+            delivery_count = getattr(msg, "delivery_count", 1)
+            if delivery_count <= 1:
+                logger.exception(
+                    "agent_completion_subscriber.decode_failed",
+                    extra={"err": str(exc), "attributes": dict(msg.attributes)},
+                )
+            else:
+                logger.warning(
+                    "agent_completion_subscriber.decode_failed_retry",
+                    extra={
+                        "err": f"{type(exc).__name__}: {exc}",
+                        "attributes": dict(msg.attributes),
+                        "delivery_count": delivery_count,
+                    },
+                )
             msg.nack()
             return
 
@@ -128,15 +139,28 @@ class AgentCompletionSubscriber:
                 ttl=self._inbox_ttl,
                 fn=_invoke,
             )
-        except Exception:
-            logger.exception(
-                "agent_completion_subscriber.resume_failed",
-                extra={
-                    "dedup_key": dedup_key,
-                    "thread_id": completion.get("thread_id", ""),
-                    "agent_role": completion.get("agent_role", ""),
-                },
-            )
+        except Exception as exc:
+            delivery_count = getattr(msg, "delivery_count", 1)
+            if delivery_count <= 1:
+                logger.exception(
+                    "agent_completion_subscriber.resume_failed",
+                    extra={
+                        "dedup_key": dedup_key,
+                        "thread_id": completion.get("thread_id", ""),
+                        "agent_role": completion.get("agent_role", ""),
+                    },
+                )
+            else:
+                logger.warning(
+                    "agent_completion_subscriber.resume_failed_retry",
+                    extra={
+                        "dedup_key": dedup_key,
+                        "thread_id": completion.get("thread_id", ""),
+                        "agent_role": completion.get("agent_role", ""),
+                        "delivery_count": delivery_count,
+                        "err": f"{type(exc).__name__}: {exc}",
+                    },
+                )
             msg.nack()
             return
 

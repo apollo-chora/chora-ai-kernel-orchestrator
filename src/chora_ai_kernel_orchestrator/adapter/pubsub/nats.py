@@ -13,8 +13,9 @@ every dispatch lane publish and consume through NATS JetStream:
   inbox-idempotency store is the durability backstop for at-least-once.
 * ``NatsConsumerLoop`` is the JetStream pull-consumer loop that replaces the
   Pub/Sub StreamingPull loops: one durable pull consumer per subject, a fetch
-  pump per consumer, and the same callback-timeout + nack-on-failure
-  discipline the StreamingPull loops had.
+  pump per consumer, and retry/backoff/dead-letter discipline matching the
+  Go ``chora-common/eventbus`` pattern (MaxDeliver, AckWait, Backoff,
+  DLQSubject).
 
 Connection is lazy: nothing opens a socket until ``start()`` so unit tests
 and ``/healthz`` stay cheap.
@@ -25,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,18 @@ ENV_NATS_URL = "NATS_URL"
 #: original subject when it dead-letters a message. An infrastructure address,
 #: not a domain event name.
 _DLQ_SUBJECT_PREFIX = "_dlq."
+
+#: Default redelivery ceiling before DLQ routing (``chora-common/eventbus``
+#: ``ConsumerConfig.MaxDeliver``).
+DEFAULT_MAX_DELIVER = 5
+
+#: Default AckWait in seconds — how long a delivered message may be unacked
+#: before redelivery (``chora-common/eventbus`` ``ConsumerConfig.AckWait``).
+DEFAULT_ACK_WAIT_S = 30.0
+
+#: Default per-attempt backoff schedule in seconds
+#: (``chora-common/eventbus`` ``ConsumerConfig.Backoff``).
+DEFAULT_BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0)
 
 
 class _SubscriberLike(Protocol):
@@ -82,11 +96,46 @@ class NatsMessage:
     def subject(self) -> str:
         return str(getattr(self._msg, "subject", "") or "")
 
+    @property
+    def delivery_count(self) -> int:
+        """Number of times this message has been delivered (1-indexed).
+
+        Read from the JetStream message metadata; falls back to 1 when
+        metadata is unavailable (e.g. in unit tests with a stub message).
+        """
+        try:
+            md = self._msg.metadata()
+            if md is not None:
+                return int(getattr(md, "num_delivered", 0) or 0)
+        except Exception:  # fail-loud-exempt: no readable delivery count means
+            # the retry ceiling cannot be enforced for this message, so the
+            # only safe default is the first delivery; this read also runs
+            # inside the failure handler, where re-raising would mask the
+            # original error.
+            return 1
+        return 1
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """All headers as a flat dict (last value wins)."""
+        return self.attributes
+
     def ack(self) -> None:
         _fire_and_forget(self._msg.ack())
 
     def nack(self) -> None:
         _fire_and_forget(self._msg.nak())
+
+    def nak_with_delay(self, delay_s: float) -> None:
+        """NAK with a redelivery delay in seconds.
+
+        JetStream will not redeliver the message until the delay has elapsed.
+        A delay of 0 or less falls back to an immediate NAK.
+        """
+        if delay_s > 0:
+            _fire_and_forget(self._msg.nak(delay=delay_s))
+        else:
+            _fire_and_forget(self._msg.nak())
 
 
 class NatsConsumerLoop:
@@ -94,9 +143,17 @@ class NatsConsumerLoop:
 
     One durable pull consumer per subject, one fetch pump per consumer. Each
     fetched message is wrapped in :class:`NatsMessage` and handed to the
-    subscriber's ``handle_message`` under the callback timeout; a raise or a
-    timeout NACKs so JetStream redelivers (the subscriber owns the happy-path
-    ack/nack, exactly as under StreamingPull).
+    subscriber's ``handle_message`` under the callback timeout.
+
+    On failure the loop implements the same retry/backoff/dead-letter
+    discipline as the Go ``chora-common/eventbus``:
+
+    * Under the ``max_deliver`` ceiling: NAK with a delay from the
+      ``backoff_s`` schedule (clamped to the last entry once exhausted).
+    * At the ceiling: republish to the DLQ subject (``_dlq.<subject>``
+      unless ``dlq_subject`` is set), stamp ``Chora-Dlq-Delivery-Count`` and
+      other ``Chora-Dlq-*`` headers, then ACK the original only after the
+      DLQ write succeeds.
     """
 
     def __init__(
@@ -111,6 +168,10 @@ class NatsConsumerLoop:
         fetch_batch: int = 1,
         fetch_timeout_s: float = 5.0,
         connect_timeout_s: float = 10.0,
+        max_deliver: int = DEFAULT_MAX_DELIVER,
+        ack_wait_s: float = DEFAULT_ACK_WAIT_S,
+        backoff_s: Iterable[float] = DEFAULT_BACKOFF_S,
+        dlq_subject: str = "",
     ) -> None:
         if not (url or "").strip():
             raise ValueError("NatsConsumerLoop: url required")
@@ -120,6 +181,17 @@ class NatsConsumerLoop:
                 "NatsConsumerLoop: at least one subject is required; a loop "
                 "with nothing to listen on starts clean and parks every run forever"
             )
+        backoff = tuple(float(d) for d in backoff_s)
+        if len(backoff) > max_deliver:
+            raise ValueError(
+                f"NatsConsumerLoop: {len(backoff)} backoff entries exceeds "
+                f"max_deliver {max_deliver}"
+            )
+        for i, d in enumerate(backoff):
+            if d <= 0:
+                raise ValueError(
+                    f"NatsConsumerLoop: backoff[{i}] must be positive, got {d}"
+                )
         self._url = url.strip()
         self._subjects = subs
         self._subscriber = subscriber
@@ -129,6 +201,10 @@ class NatsConsumerLoop:
         self._fetch_batch = fetch_batch
         self._fetch_timeout_s = fetch_timeout_s
         self._connect_timeout_s = connect_timeout_s
+        self._max_deliver = max_deliver if max_deliver > 0 else DEFAULT_MAX_DELIVER
+        self._ack_wait_s = ack_wait_s if ack_wait_s > 0 else DEFAULT_ACK_WAIT_S
+        self._backoff_s = backoff
+        self._dlq_subject = (dlq_subject or "").strip()
 
         self._nc: Any = None
         self._tasks: list[asyncio.Task[None]] = []
@@ -157,6 +233,17 @@ class NatsConsumerLoop:
         base = subject[len(_DLQ_SUBJECT_PREFIX):] if subject.startswith(_DLQ_SUBJECT_PREFIX) else subject
         return f"{self._durable_prefix}-{base.replace('.', '-')}"
 
+    def _dlq_subject_for(self, subject: str) -> str:
+        """The DLQ subject for a bound subject.
+
+        Uses the explicitly configured ``dlq_subject`` if set, otherwise
+        derives the conventional ``_dlq.<subject>`` per
+        ``chora-common/eventbus/bus.go`` ``DLQSubject``.
+        """
+        if self._dlq_subject:
+            return self._dlq_subject
+        return f"{_DLQ_SUBJECT_PREFIX}{self._full_subject(subject)}"
+
     async def start(self) -> None:
         if self._stopped is not None:
             raise RuntimeError("NatsConsumerLoop: already started")
@@ -167,13 +254,22 @@ class NatsConsumerLoop:
             full = self._full_subject(subject)
             durable = self._durable_name(subject)
             try:
-                sub = await js.pull_subscribe(full, durable=durable)
+                from nats.js.api import AckPolicy, ConsumerConfig
+
+                config = ConsumerConfig(
+                    durable_name=durable,
+                    ack_policy=AckPolicy.EXPLICIT,
+                    max_deliver=self._max_deliver,
+                    ack_wait=self._ack_wait_s,
+                    backoff=list(self._backoff_s),
+                )
+                sub = await js.pull_subscribe(full, config=config)
             except Exception:
                 logger.exception("nats.consumer.pull_subscribe_failed", extra={"subject": full})
                 await self._drain_tasks()
                 await self._close_connection()
                 raise
-            self._tasks.append(asyncio.create_task(self._pump(full, sub), name=f"nats-pump-{subject}"))
+            self._tasks.append(asyncio.create_task(self._pump(full, sub, durable), name=f"nats-pump-{subject}"))
             logger.info("nats.consumer.started", extra={"subject": full, "durable": durable})
 
     async def _connect(self) -> Any:
@@ -186,7 +282,7 @@ class NatsConsumerLoop:
             max_reconnect_attempts=10,
         )
 
-    async def _pump(self, subject: str, sub: Any) -> None:
+    async def _pump(self, subject: str, sub: Any, durable: str) -> None:
         while not self._stopped:
             try:
                 msgs = await sub.fetch(batch=self._fetch_batch, timeout=self._fetch_timeout_s)
@@ -206,20 +302,137 @@ class NatsConsumerLoop:
             for msg in msgs:
                 if self._stopped:
                     break
-                await self._handle(msg)
+                await self._handle(msg, durable=durable)
 
-    async def _handle(self, msg: Any) -> None:
+    async def _handle(self, msg: Any, *, durable: str) -> None:
         wrapped = NatsMessage(msg)
         try:
             await asyncio.wait_for(
                 self._subscriber.handle_message(wrapped),
                 self._callback_timeout_s,
             )
-        except Exception:
-            logger.exception("nats.consumer.callback_failed")
-            # The subscriber owns ack/nack; landing here is a marshaling /
-            # timeout failure, so NACK and let JetStream redeliver.
-            wrapped.nack()
+        except Exception as exc:
+            delivered = wrapped.delivery_count
+            if delivered >= self._max_deliver:
+                logger.error(
+                    "nats.consumer.dead_lettering",
+                    extra={
+                        "subject": wrapped.subject,
+                        "delivery_count": delivered,
+                        "err": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                await self._dead_letter(msg, wrapped, durable, exc)
+            else:
+                delay = self._retry_delay(delivered)
+                if delivered <= 1:
+                    logger.exception(
+                        "nats.consumer.callback_failed",
+                        extra={
+                            "subject": wrapped.subject,
+                            "delivery_count": delivered,
+                            "delay_s": delay,
+                        },
+                    )
+                else:
+                    logger.warning(
+                        "nats.consumer.callback_failed_retry",
+                        extra={
+                            "subject": wrapped.subject,
+                            "delivery_count": delivered,
+                            "delay_s": delay,
+                            "err": f"{type(exc).__name__}: {exc}",
+                        },
+                    )
+                wrapped.nak_with_delay(delay)
+
+    async def _dead_letter(self, msg: Any, wrapped: NatsMessage, durable: str, cause: BaseException) -> None:
+        """Republish a message to the DLQ subject, then ACK the original.
+
+        The original is acknowledged only after the DLQ write succeeds. If
+        the write fails after retries the original is left unacked so the
+        event is not lost.
+        """
+        dlq_subject = self._dlq_subject_for(wrapped.subject)
+        headers = self._build_dlq_headers(msg, wrapped, durable, cause)
+
+        schedule = [1.0, 2.0, 5.0, 10.0]
+        last_err: BaseException | None = None
+
+        for attempt in range(len(schedule) + 1):
+            try:
+                js = self._nc.jetstream()
+                await js.publish(dlq_subject, payload=msg.data, headers=headers)
+                wrapped.ack()
+                logger.info(
+                    "nats.consumer.dead_lettered",
+                    extra={
+                        "subject": wrapped.subject,
+                        "dlq_subject": dlq_subject,
+                        "delivery_count": wrapped.delivery_count,
+                    },
+                )
+                return
+            except Exception as exc:  # fail-loud-exempt: the DLQ publish is retried
+                # on the same schedule the Go eventbus uses, and only the
+                # terminal failure is logged below, so a per-attempt log would
+                # repeat one operator-visible event several times.
+                last_err = exc
+                if attempt == len(schedule):
+                    break
+                await asyncio.sleep(schedule[attempt])
+
+        logger.error(
+            "nats.consumer.dlq_publish_failed",
+            extra={
+                "subject": wrapped.subject,
+                "dlq_subject": dlq_subject,
+                "err": f"{type(last_err).__name__}: {last_err}",
+            },
+        )
+
+    def _build_dlq_headers(
+        self, msg: Any, wrapped: NatsMessage, durable: str, cause: BaseException
+    ) -> dict[str, str]:
+        """Build the header set for a DLQ copy of the original message.
+
+        Copies all original headers, removes the broker message id (so the
+        DLQ copy is not suppressed as a duplicate), and stamps the
+        ``Chora-Dlq-*`` headers the Go eventbus uses
+        (``chora-common/eventbus/jetstream.go`` ``dlqHeaders``).
+        """
+        src = getattr(msg, "headers", None) or {}
+        hdr: dict[str, str] = {}
+        for k, v in src.items():
+            if isinstance(v, (list, tuple)):
+                hdr[str(k)] = str(v[-1]) if v else ""
+            else:
+                hdr[str(k)] = str(v)
+
+        hdr.pop("Nats-Msg-Id", None)
+        event_id = hdr.get("Chora-Event-Id", "")
+        if event_id:
+            dlq_id = f"{event_id}.dlq.{durable}"
+            hdr["Nats-Msg-Id"] = dlq_id
+
+        hdr["Chora-Dlq-Source-Subject"] = wrapped.subject
+        hdr["Chora-Dlq-Consumer"] = durable
+        hdr["Chora-Dlq-Delivery-Count"] = str(wrapped.delivery_count)
+        hdr["Chora-Dlq-Failed-At"] = datetime.now(tz=UTC).isoformat()
+        hdr["Chora-Dlq-Reason"] = str(cause)
+        return hdr
+
+    def _retry_delay(self, delivered: int) -> float:
+        """The backoff interval for the given (1-based) delivery attempt.
+
+        Clamps to the last entry once the schedule is exhausted, and returns
+        0 when no schedule is configured (caller then uses an immediate NAK).
+        """
+        if not self._backoff_s:
+            return 0.0
+        idx = max(delivered - 1, 0)
+        idx = min(idx, len(self._backoff_s) - 1)
+        return self._backoff_s[idx]
 
     async def stop(self) -> None:
         if self._stopped is not None and not self._stopped:
@@ -253,6 +466,9 @@ def _is_fetch_timeout(exc: BaseException) -> bool:
 
 
 __all__ = [
+    "DEFAULT_ACK_WAIT_S",
+    "DEFAULT_BACKOFF_S",
+    "DEFAULT_MAX_DELIVER",
     "ENV_NATS_URL",
     "NatsConsumerLoop",
     "NatsMessage",

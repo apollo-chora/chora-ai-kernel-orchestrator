@@ -136,10 +136,21 @@ class QGenCrewSubscriber:
                     raise ValueError("expected dict body")
                 event = decoded
         except (ProtoDecodeError, ValueError, UnicodeDecodeError) as exc:
-            logger.exception(
-                "qgen_crew_subscriber.decode_failed",
-                extra={"err": str(exc), "attributes": dict(msg.attributes)},
-            )
+            delivery_count = getattr(msg, "delivery_count", 1)
+            if delivery_count <= 1:
+                logger.exception(
+                    "qgen_crew_subscriber.decode_failed",
+                    extra={"err": str(exc), "attributes": dict(msg.attributes)},
+                )
+            else:
+                logger.warning(
+                    "qgen_crew_subscriber.decode_failed_retry",
+                    extra={
+                        "err": f"{type(exc).__name__}: {exc}",
+                        "attributes": dict(msg.attributes),
+                        "delivery_count": delivery_count,
+                    },
+                )
             msg.nack()
             return
 
@@ -224,14 +235,26 @@ class QGenCrewSubscriber:
                 ttl=self._inbox_ttl,
                 fn=_invoke,
             )
-        except Exception:
-            logger.exception(
-                "qgen_crew_subscriber.runner_failed",
-                extra={
-                    "dedup_key": dedup_key,
-                    "tenant_id": msg.attributes.get("tenant_id", ""),
-                },
-            )
+        except Exception as exc:
+            delivery_count = getattr(msg, "delivery_count", 1)
+            if delivery_count <= 1:
+                logger.exception(
+                    "qgen_crew_subscriber.runner_failed",
+                    extra={
+                        "dedup_key": dedup_key,
+                        "tenant_id": msg.attributes.get("tenant_id", ""),
+                    },
+                )
+            else:
+                logger.warning(
+                    "qgen_crew_subscriber.runner_failed_retry",
+                    extra={
+                        "dedup_key": dedup_key,
+                        "tenant_id": msg.attributes.get("tenant_id", ""),
+                        "delivery_count": delivery_count,
+                        "err": f"{type(exc).__name__}: {exc}",
+                    },
+                )
             msg.nack()
             return
 
