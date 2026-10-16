@@ -104,16 +104,16 @@ class NatsMessage:
         metadata is unavailable (e.g. in unit tests with a stub message).
         """
         try:
-            md = self._msg.metadata()
-            if md is not None:
-                return int(getattr(md, "num_delivered", 0) or 0)
+            md = self._msg.metadata
         except Exception:  # fail-loud-exempt: no readable delivery count means
             # the retry ceiling cannot be enforced for this message, so the
             # only safe default is the first delivery; this read also runs
             # inside the failure handler, where re-raising would mask the
             # original error.
             return 1
-        return 1
+        if md is None:
+            return 1
+        return int(getattr(md, "num_delivered", 0) or 0)
 
     @property
     def headers(self) -> dict[str, str]:
@@ -182,16 +182,20 @@ class NatsConsumerLoop:
                 "with nothing to listen on starts clean and parks every run forever"
             )
         backoff = tuple(float(d) for d in backoff_s)
-        if len(backoff) > max_deliver:
+        if not backoff:
             raise ValueError(
-                f"NatsConsumerLoop: {len(backoff)} backoff entries exceeds "
-                f"max_deliver {max_deliver}"
+                "NatsConsumerLoop: backoff_s must not be empty; an empty "
+                "schedule NAKs immediately, which is the unbounded redelivery "
+                "this loop exists to stop"
             )
+        # Normalise the ceiling BEFORE validating against it: a caller passing
+        # max_deliver=0 means "use the default", not "reject every schedule".
+        max_deliver = max_deliver if max_deliver > 0 else DEFAULT_MAX_DELIVER
+        if len(backoff) > max_deliver:
+            raise ValueError(f"NatsConsumerLoop: {len(backoff)} backoff entries exceeds max_deliver {max_deliver}")
         for i, d in enumerate(backoff):
             if d <= 0:
-                raise ValueError(
-                    f"NatsConsumerLoop: backoff[{i}] must be positive, got {d}"
-                )
+                raise ValueError(f"NatsConsumerLoop: backoff[{i}] must be positive, got {d}")
         self._url = url.strip()
         self._subjects = subs
         self._subscriber = subscriber
@@ -201,7 +205,7 @@ class NatsConsumerLoop:
         self._fetch_batch = fetch_batch
         self._fetch_timeout_s = fetch_timeout_s
         self._connect_timeout_s = connect_timeout_s
-        self._max_deliver = max_deliver if max_deliver > 0 else DEFAULT_MAX_DELIVER
+        self._max_deliver = max_deliver
         self._ack_wait_s = ack_wait_s if ack_wait_s > 0 else DEFAULT_ACK_WAIT_S
         self._backoff_s = backoff
         self._dlq_subject = (dlq_subject or "").strip()
@@ -230,7 +234,7 @@ class NatsConsumerLoop:
         consumer is listening. Deriving from it would also make the durable
         name differ from every other consumer on the same original subject.
         """
-        base = subject[len(_DLQ_SUBJECT_PREFIX):] if subject.startswith(_DLQ_SUBJECT_PREFIX) else subject
+        base = subject[len(_DLQ_SUBJECT_PREFIX) :] if subject.startswith(_DLQ_SUBJECT_PREFIX) else subject
         return f"{self._durable_prefix}-{base.replace('.', '-')}"
 
     def _dlq_subject_for(self, subject: str) -> str:
@@ -350,8 +354,9 @@ class NatsConsumerLoop:
         """Republish a message to the DLQ subject, then ACK the original.
 
         The original is acknowledged only after the DLQ write succeeds. If
-        the write fails after retries the original is left unacked so the
-        event is not lost.
+        the write fails after retries the original is left unsettled and
+        redelivered on this loop's backoff schedule, so the DLQ attempt is
+        retried rather than abandoned.
         """
         dlq_subject = self._dlq_subject_for(wrapped.subject)
         headers = self._build_dlq_headers(msg, wrapped, durable, cause)
@@ -363,16 +368,6 @@ class NatsConsumerLoop:
             try:
                 js = self._nc.jetstream()
                 await js.publish(dlq_subject, payload=msg.data, headers=headers)
-                wrapped.ack()
-                logger.info(
-                    "nats.consumer.dead_lettered",
-                    extra={
-                        "subject": wrapped.subject,
-                        "dlq_subject": dlq_subject,
-                        "delivery_count": wrapped.delivery_count,
-                    },
-                )
-                return
             except Exception as exc:  # fail-loud-exempt: the DLQ publish is retried
                 # on the same schedule the Go eventbus uses, and only the
                 # terminal failure is logged below, so a per-attempt log would
@@ -381,6 +376,20 @@ class NatsConsumerLoop:
                 if attempt == len(schedule):
                     break
                 await asyncio.sleep(schedule[attempt])
+                continue
+            # The DLQ copy is on the broker: settle the original. An ACK
+            # failure is NOT a publish failure and must not re-run the loop,
+            # or the DLQ copy is written a second time.
+            wrapped.ack()
+            logger.info(
+                "nats.consumer.dead_lettered",
+                extra={
+                    "subject": wrapped.subject,
+                    "dlq_subject": dlq_subject,
+                    "delivery_count": wrapped.delivery_count,
+                },
+            )
+            return
 
         logger.error(
             "nats.consumer.dlq_publish_failed",
@@ -390,10 +399,14 @@ class NatsConsumerLoop:
                 "err": f"{type(last_err).__name__}: {last_err}",
             },
         )
+        # Leave the original unsettled rather than ACKing a message whose DLQ
+        # copy was never written, and redeliver it on this loop's own schedule
+        # instead of leaving the retry to the broker's AckWait. At the ceiling
+        # the broker may still drop it, which is why the error above is the
+        # operator signal and not a guarantee of recovery.
+        wrapped.nak_with_delay(schedule[-1])
 
-    def _build_dlq_headers(
-        self, msg: Any, wrapped: NatsMessage, durable: str, cause: BaseException
-    ) -> dict[str, str]:
+    def _build_dlq_headers(self, msg: Any, wrapped: NatsMessage, durable: str, cause: BaseException) -> dict[str, str]:
         """Build the header set for a DLQ copy of the original message.
 
         Copies all original headers, removes the broker message id (so the
