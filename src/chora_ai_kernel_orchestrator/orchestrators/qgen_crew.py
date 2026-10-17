@@ -168,6 +168,16 @@ def _chunk_size() -> int:
 # generator output is never padded, truncated, or silently coerced.
 _SET_VALIDATION_USER_MESSAGE = "The generator returned an invalid question set; no questions were produced."
 
+# User-facing copy when the DISPATCH itself failed — the agent crashed, the
+# gateway was unreachable, the client refused to serialise the request, the
+# reaper synthesised a failure. No generator output ever existed, so the
+# "invalid question set" copy above would blame the model for an
+# infrastructure fault. The author gets neutral copy; the cause stays in
+# `errors` / `pipeline_trace` / the logs for operators.
+_EXECUTOR_FAILURE_USER_MESSAGE = (
+    "Question generation could not be completed because the generation service failed. Please try again."
+)
+
 # User-facing message surfaced on a Cloud Model Armor BLOCK verdict —
 # preserved verbatim from the retired _GuardrailAdapter so the FE refusal
 # copy is unchanged across the ADR-169 cutover.
@@ -608,11 +618,14 @@ async def generate_node(state: QGenCrewState, *, executor: _ExecutorLike) -> dic
         # set lane uses. It is NOT retried: the agent already retried its
         # transient model errors, and a reaped lane would only park the author
         # for another deadline per attempt. (The wire vocabulary is fixed to
-        # GUARDRAIL_PRE | GUARDRAIL_POST | VALIDATION by chora-creation.)
+        # GUARDRAIL_PRE | GUARDRAIL_POST | VALIDATION by chora-creation.) The
+        # CLASS is unchanged, but the author-facing copy is not: no generator
+        # output exists here, so this must not claim one was invalid.
         return {
             "attempt_count": attempt,
             "errors": _append_error(state, msg),
             "refusal_reason": "VALIDATION",
+            "refusal_user_facing_message": _EXECUTOR_FAILURE_USER_MESSAGE,
             "pipeline_trace": _append_trace(
                 state,
                 "generate",
@@ -1511,7 +1524,7 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
         )
         return {
             "refusal_reason": "VALIDATION",
-            "refusal_user_facing_message": _SET_VALIDATION_USER_MESSAGE,
+            "refusal_user_facing_message": _EXECUTOR_FAILURE_USER_MESSAGE,
             "errors": _append_error(state, msg),
             "pipeline_trace": _append_trace(
                 state,
