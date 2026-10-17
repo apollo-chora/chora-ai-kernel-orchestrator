@@ -8,7 +8,9 @@ reaper a different durable from every other consumer on the same subject.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -138,3 +140,45 @@ def test_the_dlq_id_is_stable_across_redeliveries() -> None:
         == headers_again["Nats-Msg-Id"]
         == ("CHORA_EVENTS.42.dlq.chora-ai-kernel-chora-test")
     )
+
+
+async def test_start_passes_the_explicit_durable_to_pull_subscribe() -> None:
+    """REGRESSION: the durable must reach pull_subscribe as an explicit argument.
+
+    nats-py's ``pull_subscribe`` only resolves the durable from its ``durable``
+    argument; when it arrives only via ``config.durable_name`` the client
+    generates a random consumer name, and nats-server rejects the create
+    with 10017 'consumer name in subject does not match durable name in
+    request'. Both the explicit argument and the config field must carry
+    the durable.
+    """
+    loop = _loop("chora.test")
+
+    async def _idle_fetch(*_args: object, **_kwargs: object) -> list[object]:
+        await asyncio.sleep(3600)
+        return []
+
+    js = MagicMock()
+    sub = MagicMock()
+    sub.fetch = _idle_fetch
+    js.pull_subscribe = AsyncMock(return_value=sub)
+
+    nc = MagicMock()
+    nc.jetstream.return_value = js
+    nc.close = AsyncMock()
+
+    loop._connect = AsyncMock(return_value=nc)  # noqa: SLF001
+
+    try:
+        await loop.start()
+
+        js.pull_subscribe.assert_awaited_once()
+        args, kwargs = js.pull_subscribe.await_args
+
+        expected = loop._durable_name("chora.test")  # noqa: SLF001
+
+        assert args[0] == "chora.test"
+        assert kwargs["durable"] == expected
+        assert kwargs["config"].durable_name == expected
+    finally:
+        await loop.stop()
