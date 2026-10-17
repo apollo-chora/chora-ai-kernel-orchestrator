@@ -174,9 +174,12 @@ _SET_VALIDATION_USER_MESSAGE = "The generator returned an invalid question set; 
 # "invalid question set" copy above would blame the model for an
 # infrastructure fault. The author gets neutral copy; the cause stays in
 # `errors` / `pipeline_trace` / the logs for operators.
-_EXECUTOR_FAILURE_USER_MESSAGE = (
-    "Question generation could not be completed because the generation service failed. Please try again."
-)
+#
+# Deliberately does NOT invite a retry: this bucket also holds PERMANENT
+# failures (a client-side contract refusal, a capability the gateway cannot
+# carry), so retryability is not known here. A "try again" would be one more
+# untrue statement, and the surface already offers its own retry control.
+_EXECUTOR_FAILURE_USER_MESSAGE = "We couldn't complete question generation because of a service error."
 
 # User-facing message surfaced on a Cloud Model Armor BLOCK verdict —
 # preserved verbatim from the retired _GuardrailAdapter so the FE refusal
