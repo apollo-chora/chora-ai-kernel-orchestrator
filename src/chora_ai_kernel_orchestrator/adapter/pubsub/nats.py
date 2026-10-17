@@ -313,7 +313,7 @@ class NatsConsumerLoop:
                     ack_wait=self._ack_wait_s,
                     backoff=list(self._backoff_s),
                 )
-                sub = await js.pull_subscribe(full, config=config)
+                sub = await js.pull_subscribe(full, durable=durable, config=config)
             except Exception:
                 logger.exception("nats.consumer.pull_subscribe_failed", extra={"subject": full})
                 await self._drain_tasks()
