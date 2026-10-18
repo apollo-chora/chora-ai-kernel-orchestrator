@@ -205,31 +205,43 @@ class CreationSourceMaterialClient:
         if not isinstance(raw_chunks, list):
             raise SourceMaterialError(REASON_BAD_RESPONSE, "body has no chunks array")
 
+        # creation emits a JSON boolean; "false" is a truthy string, so a
+        # permissive bool() would silently mark a truncated corpus as complete.
+        raw_complete = body.get("chunks_complete")
+        if not isinstance(raw_complete, bool):
+            raise SourceMaterialError(REASON_BAD_RESPONSE, "body.chunks_complete is not boolean")
+
         chunks: list[SourceMaterialChunk] = []
-        for entry in raw_chunks:
+        for idx, entry in enumerate(raw_chunks):
+            # Strict, not coercing: this adapter promises malformed wire
+            # responses become creation_bad_response, and str()/int() would
+            # quietly rewrite the document instead of reporting it.
             if not isinstance(entry, dict):
-                continue
-            text = str(entry.get("text") or "")
-            if not text.strip():
-                continue
+                raise SourceMaterialError(REASON_BAD_RESPONSE, f"chunk {idx} is not an object")
+            for field in ("text", "file_uri", "file_role"):
+                value = entry.get(field)
+                if value is not None and not isinstance(value, str):
+                    raise SourceMaterialError(REASON_BAD_RESPONSE, f"chunk {idx}.{field} is not a string")
+            chunk_index = entry.get("chunk_index", 0)
+            if not isinstance(chunk_index, int) or isinstance(chunk_index, bool):
+                raise SourceMaterialError(REASON_BAD_RESPONSE, f"chunk {idx}.chunk_index is not an integer")
             page = entry.get("page_no")
-            try:
-                chunks.append(
-                    SourceMaterialChunk(
-                        file_uri=str(entry.get("file_uri") or ""),
-                        file_role=str(entry.get("file_role") or "source"),
-                        chunk_index=int(entry.get("chunk_index") or 0),
-                        page_no=int(page) if isinstance(page, int) else None,
-                        text=text,
-                    )
+            if page is not None and (not isinstance(page, int) or isinstance(page, bool)):
+                raise SourceMaterialError(REASON_BAD_RESPONSE, f"chunk {idx}.page_no is not an integer")
+
+            text = entry.get("text") or ""
+            if not text.strip():
+                continue  # a whitespace chunk cannot ground anything
+
+            chunks.append(
+                SourceMaterialChunk(
+                    file_uri=entry.get("file_uri") or "",
+                    file_role=entry.get("file_role") or "source",
+                    chunk_index=chunk_index,
+                    page_no=page,
+                    text=text,
                 )
-            except (TypeError, ValueError) as exc:
-                # A 200 carrying a malformed field must still leave through the
-                # typed contract: a raw ValueError would escape every caller's
-                # `except SourceMaterialError` and defeat the whole point of it.
-                raise SourceMaterialError(
-                    REASON_BAD_RESPONSE, f"malformed chunk {len(chunks)}: {type(exc).__name__}: {exc}"
-                ) from exc
+            )
 
         if not chunks:
             # Image-only uploads have no text layer by design, and a failed
@@ -241,7 +253,7 @@ class CreationSourceMaterialClient:
             )
 
         rendered = render_source_material(chunks)
-        complete = bool(body.get("chunks_complete", False))
+        complete = raw_complete
         if not complete:
             # Grounding on a prefix is legitimate; pretending it is the whole
             # document is not. The caller records this in the trace.

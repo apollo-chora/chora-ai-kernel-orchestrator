@@ -165,6 +165,46 @@ async def test_server_errors_are_failed_not_unreachable(status: int) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["false", 0, 1, [], None])
+async def test_non_boolean_chunks_complete_is_rejected(value) -> None:
+    # "false" is a truthy string: a permissive bool() would report a truncated
+    # corpus as complete.
+    http = _Client(_Resp(body={"chunks": [_chunk()], "chunks_complete": value}))
+    client = CreationSourceMaterialClient("http://c", http_client=http)
+    with pytest.raises(SourceMaterialError) as err:
+        await client.fetch(tenant_id="t1", job_id="j1")
+    assert err.value.reason == REASON_BAD_RESPONSE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "not-an-object",
+        {"text": 5},
+        {"text": "x", "file_uri": 7},
+        {"text": "x", "chunk_index": "1"},
+        {"text": "x", "page_no": "1"},
+    ],
+)
+async def test_structurally_malformed_chunks_are_rejected_not_coerced(entry) -> None:
+    http = _Client(_Resp(body={"chunks": [entry], "chunks_complete": True}))
+    client = CreationSourceMaterialClient("http://c", http_client=http)
+    with pytest.raises(SourceMaterialError) as err:
+        await client.fetch(tenant_id="t1", job_id="j1")
+    assert err.value.reason == REASON_BAD_RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_whitespace_chunk_is_skipped_not_rejected() -> None:
+    # Skipping blank text is legitimate; COERCING a malformed field is not.
+    http = _Client(_Resp(body={"chunks": [_chunk(text="  "), _chunk(text="real")], "chunks_complete": True}))
+    client = CreationSourceMaterialClient("http://c", http_client=http)
+    text, complete = await client.fetch(tenant_id="t1", job_id="j1")
+    assert "real" in text and complete is True
+
+
+@pytest.mark.asyncio
 async def test_malformed_chunk_field_stays_typed() -> None:
     # A 200 carrying garbage must leave through the typed contract; a raw
     # ValueError would escape every caller's except SourceMaterialError.
