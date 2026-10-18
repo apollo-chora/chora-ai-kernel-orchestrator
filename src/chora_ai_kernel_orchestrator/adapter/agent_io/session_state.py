@@ -219,6 +219,15 @@ def build_session_state(
         if files:
             base_state["source_files"] = files
         base_state["grounding_mode"] = str(input_obj.get("grounding_mode") or "")
+        # The composer grounds on the same rendered text as the generator, and
+        # this branch returns EARLY — stamping it only on the generation path
+        # left compose with an empty value and a compose_material_missing
+        # refusal. Duplicated deliberately: an early return is exactly where
+        # shared stamping goes missing.
+        material_text = str(input_obj.get("source_material_text") or "")
+        if material_text:
+            base_state["source_material_text"] = material_text
+            base_state["source_material_complete"] = bool(input_obj.get("source_material_complete", True))
         return base_state
 
     if agent_role in QUESTION_ROLES:

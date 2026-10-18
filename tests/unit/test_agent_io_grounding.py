@@ -98,3 +98,24 @@ def test_material_text_stamped_without_a_scalar_blob_mirror() -> None:
 def test_no_material_key_when_absent() -> None:
     s = _state({})
     assert "source_material_text" not in s
+
+
+def test_rendered_material_reaches_compose_session_state() -> None:
+    """The compose branch returns EARLY; shared stamping goes missing there.
+
+    Without this, the composer sees source_files but no material and refuses
+    with compose_material_missing — the same failure one hop later.
+    """
+    s = _state(
+        {
+            "mode": "compose",
+            "candidates": [{"draft_id": "d-1"}],
+            "author_prompt": "paper",
+            "source_files": [{"gs_uri": "s3://b/j/source", "mime_type": "application/pdf", "role": "source"}],
+            "source_material_text": '<SOURCE file="p.pdf" page="1">Text.</SOURCE>',
+            "source_material_complete": False,
+        }
+    )
+    assert s["mode"] == "compose"
+    assert s["source_material_text"] == '<SOURCE file="p.pdf" page="1">Text.</SOURCE>'
+    assert s["source_material_complete"] is False
