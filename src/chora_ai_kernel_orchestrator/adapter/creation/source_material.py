@@ -259,3 +259,56 @@ class CreationSourceMaterialClient:
             # document is not. The caller records this in the trace.
             logger.warning("creation_source_material.truncated job=%s chunks=%d", job_id, len(chunks))
         return rendered, complete
+
+
+def _state_str(state: Any, key: str) -> str:
+    value = state.get(key) if hasattr(state, "get") else None
+    return value.strip() if isinstance(value, str) else ""
+
+
+def declares_source_material(state: Any) -> bool:
+    """True when the job says it has uploaded material, text or not.
+
+    Mirrors the Go grounding plugin's rule so the two sides cannot disagree
+    about which jobs owe grounding: a non-empty ``source_files`` list or a
+    non-empty ``source_blob_uri``.
+    """
+    files = state.get("source_files") if hasattr(state, "get") else None
+    if isinstance(files, (list, tuple)) and len(files) > 0:
+        return True
+    return _state_str(state, "source_blob_uri") != ""
+
+
+async def source_material_text_for_state(
+    state: Any,
+    *,
+    client: CreationSourceMaterialClient | None = None,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> tuple[str, bool]:
+    """Return ``(grounding_text, chunks_complete)`` for the job in graph state.
+
+    Returns ``("", True)`` when the state declares NO source material, so the
+    ungrounded and single-candidate paths stay byte-identical.
+
+    Raises :class:`SourceMaterialError` when material IS declared but cannot be
+    obtained. The caller must turn that into a refusal BEFORE dispatching: a
+    model call that proceeds without the material produces questions that look
+    valid while ignoring the author's document, which is worse than an error.
+    """
+    if not declares_source_material(state):
+        return "", True
+
+    resolved = client if client is not None else CreationSourceMaterialClient.from_env()
+    if resolved is None:
+        raise SourceMaterialError(
+            REASON_NOT_CONFIGURED,
+            f"job declares source material but {ENV_CREATION_BASE_URL} is unset",
+        )
+
+    return await resolved.fetch(
+        tenant_id=_state_str(state, "tenant_id"),
+        job_id=_state_str(state, "job_id"),
+        # Both spellings exist across the graph state and the dispatch payloads.
+        author_gcid=_state_str(state, "user_gcid") or _state_str(state, "gcid"),
+        max_bytes=max_bytes,
+    )
