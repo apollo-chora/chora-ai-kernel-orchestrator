@@ -153,6 +153,16 @@ class QGenCrewState(TypedDict, total=False):
     # block, so single + ungrounded paths stay byte-for-byte unchanged.
     source_files: list[dict[str, str]]
 
+    # ---- Rendered grounding TEXT (Phase 1b) -------------------------------
+    # The resolved, delimited source material the agents inject verbatim. It
+    # replaces the blob-by-reference path the model gateway cannot carry, and it
+    # is PERSISTED in state so later chunks/regen rounds (and compose) reuse the
+    # same corpus instead of re-reading chora-creation per turn.
+    #   source_material_complete: False ⇒ the byte budget truncated the corpus;
+    #   grounding on the prefix is allowed, passing it off as whole is not.
+    source_material_text: str
+    source_material_complete: bool
+
     # ---- ADR-197 M-B.2 prompt-override resolution (per agent role) --------
     # The runner resolves the active prompt override for qgen_question +
     # qgen_critic at handle_started (via the optional PromptResolver bound to

@@ -71,6 +71,10 @@ from chora_ai_kernel_orchestrator.adapter.agent_io import (
 from chora_ai_kernel_orchestrator.adapter.agent_io.agent_response import (
     AgentExecutorResponse,
 )
+from chora_ai_kernel_orchestrator.adapter.creation.source_material import (
+    SourceMaterialError,
+    source_material_text_for_state,
+)
 from chora_ai_kernel_orchestrator.adapter.modelarmor import (
     GuardrailScreenInput,
     ScreenResult,
@@ -180,6 +184,16 @@ _SET_VALIDATION_USER_MESSAGE = "The generator returned an invalid question set; 
 # carry), so retryability is not known here. A "try again" would be one more
 # untrue statement, and the surface already offers its own retry control.
 _EXECUTOR_FAILURE_USER_MESSAGE = "We couldn't complete question generation because of a service error."
+
+# User-facing copy when the job's own source material could not be prepared —
+# the document yielded no extractable text, creation refused the job, or the
+# reader is misconfigured. Kept distinct from the infrastructure copy above: the
+# author can act on this one, and "a service error occurred" would be one more
+# misleading message in a fix whose purpose is removing them.
+_GROUNDING_UNAVAILABLE_USER_MESSAGE = (
+    "We couldn't use the document you uploaded for question generation. "
+    "Try a text-based file (a PDF with selectable text, Word, or plain text)."
+)
 
 # User-facing message surfaced on a Cloud Model Armor BLOCK verdict —
 # preserved verbatim from the retired _GuardrailAdapter so the FE refusal
@@ -1475,8 +1489,10 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
         if suffix:
             gen_input["prompt"] = str(gen_input.get("prompt") or "") + "\n" + suffix
 
-    # Grounding passthrough — identical to generate_node so a grounded set
-    # inlines the uploaded blob + appends the citations/rubric prompt block.
+    # Grounding passthrough. NOTE: the uploaded BLOB is deliberately NOT inlined
+    # any more — the model gateway's canonical contract cannot carry it. These
+    # fields survive only for prompt/citation semantics; the material the model
+    # actually reads is source_material_text, resolved below.
     source_blob_uri = str(state.get("source_blob_uri") or "")
     if source_blob_uri:
         gen_input["source_blob_uri"] = source_blob_uri
@@ -1493,6 +1509,45 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
             grounding_mode=grounding_mode,
             question_type=question_type,
         )
+
+    # GROUNDING TEXT — resolved BEFORE dispatch, never by the agent.
+    # groundingplugin refuses to call the model when material is declared but
+    # source_material_text is absent, and that refusal would surface as a
+    # generic dispatch failure. Resolving here means a document we cannot
+    # ground is reported as exactly that, and a document we CAN ground actually
+    # reaches the model.
+    try:
+        material_text, material_complete = await source_material_text_for_state(state)
+    except SourceMaterialError as exc:
+        msg = f"generate_set grounding unavailable: {exc.reason}: {exc.detail}"
+        logger.warning(
+            "qgen_crew.generate_set.grounding_unavailable",
+            extra={"job_id": str(state.get("job_id") or ""), "reason": exc.reason},
+        )
+        failed_at = _now_iso()
+        return {
+            "refusal_reason": "VALIDATION",
+            "refusal_user_facing_message": _GROUNDING_UNAVAILABLE_USER_MESSAGE,
+            "errors": _append_error(state, msg),
+            "pipeline_trace": _append_trace(
+                state,
+                "generate",
+                status="FAILED",
+                attempt=regen_round + 1,
+                notes=msg,
+                started_at=failed_at,
+                completed_at=failed_at,
+            ),
+        }
+    if material_text:
+        gen_input["source_material_text"] = material_text
+        if not material_complete:
+            # Grounding on a prefix is legitimate; passing it off as the whole
+            # document is not. Recorded so the trace shows the truncation.
+            logger.warning(
+                "qgen_crew.generate_set.grounding_truncated",
+                extra={"job_id": str(state.get("job_id") or "")},
+            )
 
     # ADR-197 M-B.2 (CHO-2368 P2 fix) — the set lane threads the qgen_question
     # override exactly like generate_node. Without this the runner still stamps
@@ -1567,6 +1622,12 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
 
     return {
         "candidate_set": candidates,
+        # Persist the resolved corpus so later chunks/regens (and compose) reuse
+        # EXACTLY the same material instead of re-fetching creation per turn.
+        # Without this the node's own short-circuit never fires, because each
+        # turn starts from the original state.
+        "source_material_text": material_text,
+        "source_material_complete": material_complete,
         "model_shortfall_reason": str(model_summary.get("shortfall_reason") or ""),
         "pipeline_trace": _append_trace(
             state,
