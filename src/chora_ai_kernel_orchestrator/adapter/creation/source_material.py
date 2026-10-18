@@ -50,8 +50,13 @@ DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_BYTES = 120_000
 
 # Reasons are a closed vocabulary so callers can branch without string matching.
+# An HTTP RESPONSE is proof creation was reached, so never report one as
+# "unreachable": 4xx means it refused this request, 5xx means it accepted it and
+# failed. Those are different operator actions.
 REASON_NOT_CONFIGURED = "creation_not_configured"
 REASON_UNREACHABLE = "creation_unreachable"
+REASON_REJECTED = "creation_rejected"
+REASON_FAILED = "creation_failed"
 REASON_BAD_RESPONSE = "creation_bad_response"
 REASON_NO_TEXT = "source_material_empty"
 
@@ -181,7 +186,13 @@ class CreationSourceMaterialClient:
 
         status = int(getattr(resp, "status_code", 0) or 0)
         if status != 200:
-            raise SourceMaterialError(REASON_UNREACHABLE, f"creation returned HTTP {status}")
+            # Do NOT collapse this into "unreachable": a response proves creation
+            # was reached. 4xx = it refused this request (bad tenant, unknown
+            # job, author mismatch, unwired store); 5xx = it accepted the
+            # request and failed. An unknown job must never look like a job with
+            # zero extracted text, so neither becomes source_material_empty.
+            reason = REASON_REJECTED if 400 <= status < 500 else REASON_FAILED
+            raise SourceMaterialError(reason, f"creation returned HTTP {status}")
 
         try:
             body = resp.json()
@@ -202,15 +213,23 @@ class CreationSourceMaterialClient:
             if not text.strip():
                 continue
             page = entry.get("page_no")
-            chunks.append(
-                SourceMaterialChunk(
-                    file_uri=str(entry.get("file_uri") or ""),
-                    file_role=str(entry.get("file_role") or "source"),
-                    chunk_index=int(entry.get("chunk_index") or 0),
-                    page_no=int(page) if isinstance(page, int) else None,
-                    text=text,
+            try:
+                chunks.append(
+                    SourceMaterialChunk(
+                        file_uri=str(entry.get("file_uri") or ""),
+                        file_role=str(entry.get("file_role") or "source"),
+                        chunk_index=int(entry.get("chunk_index") or 0),
+                        page_no=int(page) if isinstance(page, int) else None,
+                        text=text,
+                    )
                 )
-            )
+            except (TypeError, ValueError) as exc:
+                # A 200 carrying a malformed field must still leave through the
+                # typed contract: a raw ValueError would escape every caller's
+                # `except SourceMaterialError` and defeat the whole point of it.
+                raise SourceMaterialError(
+                    REASON_BAD_RESPONSE, f"malformed chunk {len(chunks)}: {type(exc).__name__}: {exc}"
+                ) from exc
 
         if not chunks:
             # Image-only uploads have no text layer by design, and a failed

@@ -13,8 +13,10 @@ from chora_ai_kernel_orchestrator.adapter.creation.source_material import (
     DEFAULT_MAX_BYTES,
     ENV_CREATION_BASE_URL,
     REASON_BAD_RESPONSE,
+    REASON_FAILED,
     REASON_NO_TEXT,
     REASON_NOT_CONFIGURED,
+    REASON_REJECTED,
     REASON_UNREACHABLE,
     CreationSourceMaterialClient,
     SourceMaterialChunk,
@@ -140,13 +142,37 @@ async def test_whitespace_only_chunks_are_empty_material() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_error_is_unreachable_with_a_reason() -> None:
-    http = _Client(_Resp(status_code=500))
+@pytest.mark.parametrize("status", [400, 403, 404])
+async def test_client_errors_are_rejected_not_unreachable(status: int) -> None:
+    # A response is proof creation was REACHED. An unknown job (404) must never
+    # look like a job with zero text, and neither may look like a network fault.
+    http = _Client(_Resp(status_code=status))
     client = CreationSourceMaterialClient("http://c", http_client=http)
     with pytest.raises(SourceMaterialError) as err:
         await client.fetch(tenant_id="t1", job_id="j1")
-    # Machine-readable: the caller must branch on reason, never on English.
-    assert err.value.reason == REASON_UNREACHABLE
+    assert err.value.reason == REASON_REJECTED
+    assert str(status) in err.value.detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [500, 502, 503])
+async def test_server_errors_are_failed_not_unreachable(status: int) -> None:
+    http = _Client(_Resp(status_code=status))
+    client = CreationSourceMaterialClient("http://c", http_client=http)
+    with pytest.raises(SourceMaterialError) as err:
+        await client.fetch(tenant_id="t1", job_id="j1")
+    assert err.value.reason == REASON_FAILED
+
+
+@pytest.mark.asyncio
+async def test_malformed_chunk_field_stays_typed() -> None:
+    # A 200 carrying garbage must leave through the typed contract; a raw
+    # ValueError would escape every caller's except SourceMaterialError.
+    http = _Client(_Resp(body={"chunks": [_chunk(chunk_index="garbage")], "chunks_complete": True}))
+    client = CreationSourceMaterialClient("http://c", http_client=http)
+    with pytest.raises(SourceMaterialError) as err:
+        await client.fetch(tenant_id="t1", job_id="j1")
+    assert err.value.reason == REASON_BAD_RESPONSE
 
 
 @pytest.mark.asyncio
