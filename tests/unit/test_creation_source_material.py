@@ -260,3 +260,93 @@ def test_from_env_reads_base_and_tolerates_bad_timeout(monkeypatch) -> None:
     assert client is not None
     # trailing slash must not double up in the path
     assert client._base == "http://creation:8080"
+
+
+# ---- state glue --------------------------------------------------------------
+
+from chora_ai_kernel_orchestrator.adapter.creation.source_material import (  # noqa: E402
+    declares_source_material,
+    source_material_text_for_state,
+)
+
+
+class _FakeMaterialClient:
+    def __init__(self, text: str = "MATERIAL", complete: bool = True, exc=None) -> None:
+        self.calls: list[dict] = []
+        self._text = text
+        self._complete = complete
+        self._exc = exc
+
+    async def fetch(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._exc is not None:
+            raise self._exc
+        return self._text, self._complete
+
+
+def test_declares_material_matches_the_go_plugin_rule() -> None:
+    assert declares_source_material({"source_files": [{"blob_uri": "s3://b/x"}]}) is True
+    assert declares_source_material({"source_blob_uri": "s3://b/x"}) is True
+    assert declares_source_material({"source_material_text": "already here"}) is True
+    # A list whose entries carry no blob_uri is NOT material in the Go plugin,
+    # so it must not be material here either.
+    assert declares_source_material({"source_files": [{}]}) is False
+    assert declares_source_material({"source_files": [{"blob_uri": "   "}]}) is False
+    assert declares_source_material({"source_files": []}) is False
+    assert declares_source_material({"source_blob_uri": "   "}) is False
+    assert declares_source_material({}) is False
+
+
+@pytest.mark.asyncio
+async def test_ungrounded_state_is_untouched_and_never_calls_creation() -> None:
+    client = _FakeMaterialClient()
+    text, complete = await source_material_text_for_state({"tenant_id": "t", "job_id": "j"}, client=client)
+    # The prompt-only and single-candidate paths must stay byte-identical.
+    assert (text, complete) == ("", True)
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_grounded_state_passes_tenant_job_and_author() -> None:
+    client = _FakeMaterialClient()
+    text, complete = await source_material_text_for_state(
+        {"tenant_id": "t1", "job_id": "j1", "gcid": "g1", "source_blob_uri": "s3://b/x"},
+        client=client,
+    )
+    assert text == "MATERIAL" and complete is True
+    assert client.calls[0] == {"tenant_id": "t1", "job_id": "j1", "author_gcid": "g1", "max_bytes": DEFAULT_MAX_BYTES}
+
+
+@pytest.mark.asyncio
+async def test_gcid_wins_over_user_gcid() -> None:
+    client = _FakeMaterialClient()
+    await source_material_text_for_state(
+        {
+            "tenant_id": "t",
+            "job_id": "j",
+            "gcid": "from-state",
+            "user_gcid": "from-payload",
+            "source_files": [{"blob_uri": "s3://b/x"}],
+        },
+        client=client,
+    )
+    # `gcid` is the authoritative graph-state author; user_gcid is a fallback.
+    assert client.calls[0]["author_gcid"] == "from-state"
+
+
+@pytest.mark.asyncio
+async def test_declared_material_without_a_client_is_a_refusal(monkeypatch) -> None:
+    monkeypatch.delenv(ENV_CREATION_BASE_URL, raising=False)
+    with pytest.raises(SourceMaterialError) as err:
+        await source_material_text_for_state({"tenant_id": "t", "job_id": "j", "source_blob_uri": "s3://b/x"})
+    assert err.value.reason == REASON_NOT_CONFIGURED
+
+
+@pytest.mark.asyncio
+async def test_fetch_failure_propagates_as_a_refusal() -> None:
+    client = _FakeMaterialClient(exc=SourceMaterialError(REASON_NO_TEXT, "empty"))
+    with pytest.raises(SourceMaterialError) as err:
+        await source_material_text_for_state(
+            {"tenant_id": "t", "job_id": "j", "source_blob_uri": "s3://b/x"}, client=client
+        )
+    assert err.value.reason == REASON_NO_TEXT
