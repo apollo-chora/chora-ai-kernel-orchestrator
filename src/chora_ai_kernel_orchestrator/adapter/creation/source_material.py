@@ -273,9 +273,19 @@ def declares_source_material(state: Any) -> bool:
     about which jobs owe grounding: a non-empty ``source_files`` list or a
     non-empty ``source_blob_uri``.
     """
-    files = state.get("source_files") if hasattr(state, "get") else None
-    if isinstance(files, (list, tuple)) and len(files) > 0:
+    if not hasattr(state, "get"):
+        return False
+    # Mirror the Go plugin check-for-check, including the entries: a
+    # source_files LIST whose entries all lack blob_uri is NOT material there,
+    # so treating list-length alone as the signal would make the two sides
+    # disagree and one of them would silently skip grounding.
+    if _state_str(state, "source_material_text") != "":
         return True
+    files = state.get("source_files")
+    if isinstance(files, (list, tuple)):
+        for entry in files:
+            if isinstance(entry, dict) and str(entry.get("blob_uri") or "").strip():
+                return True
     return _state_str(state, "source_blob_uri") != ""
 
 
@@ -308,7 +318,8 @@ async def source_material_text_for_state(
     return await resolved.fetch(
         tenant_id=_state_str(state, "tenant_id"),
         job_id=_state_str(state, "job_id"),
-        # Both spellings exist across the graph state and the dispatch payloads.
-        author_gcid=_state_str(state, "user_gcid") or _state_str(state, "gcid"),
+        # `gcid` is the authoritative author field in graph state; `user_gcid`
+        # is only a fallback for payloads that carry the other spelling.
+        author_gcid=_state_str(state, "gcid") or _state_str(state, "user_gcid"),
         max_bytes=max_bytes,
     )

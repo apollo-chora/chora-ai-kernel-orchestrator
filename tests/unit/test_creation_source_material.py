@@ -287,6 +287,11 @@ class _FakeMaterialClient:
 def test_declares_material_matches_the_go_plugin_rule() -> None:
     assert declares_source_material({"source_files": [{"blob_uri": "s3://b/x"}]}) is True
     assert declares_source_material({"source_blob_uri": "s3://b/x"}) is True
+    assert declares_source_material({"source_material_text": "already here"}) is True
+    # A list whose entries carry no blob_uri is NOT material in the Go plugin,
+    # so it must not be material here either.
+    assert declares_source_material({"source_files": [{}]}) is False
+    assert declares_source_material({"source_files": [{"blob_uri": "   "}]}) is False
     assert declares_source_material({"source_files": []}) is False
     assert declares_source_material({"source_blob_uri": "   "}) is False
     assert declares_source_material({}) is False
@@ -313,14 +318,20 @@ async def test_grounded_state_passes_tenant_job_and_author() -> None:
 
 
 @pytest.mark.asyncio
-async def test_user_gcid_wins_over_gcid() -> None:
+async def test_gcid_wins_over_user_gcid() -> None:
     client = _FakeMaterialClient()
     await source_material_text_for_state(
-        {"tenant_id": "t", "job_id": "j", "gcid": "from-config", "user_gcid": "from-event", "source_files": [{}]},
+        {
+            "tenant_id": "t",
+            "job_id": "j",
+            "gcid": "from-state",
+            "user_gcid": "from-payload",
+            "source_files": [{"blob_uri": "s3://b/x"}],
+        },
         client=client,
     )
-    # The event-stamped author is authoritative.
-    assert client.calls[0]["author_gcid"] == "from-event"
+    # `gcid` is the authoritative graph-state author; user_gcid is a fallback.
+    assert client.calls[0]["author_gcid"] == "from-state"
 
 
 @pytest.mark.asyncio
