@@ -270,8 +270,10 @@ def declares_source_material(state: Any) -> bool:
     """True when the job says it has uploaded material, text or not.
 
     Mirrors the Go grounding plugin's rule so the two sides cannot disagree
-    about which jobs owe grounding: a non-empty ``source_files`` list or a
-    non-empty ``source_blob_uri``.
+    about which jobs owe grounding: a non-empty ``source_material_text``, OR any
+    ``source_files`` ENTRY carrying a non-empty ``blob_uri``, OR a non-empty
+    ``source_blob_uri``. A non-empty list of empty entries is NOT material —
+    groundingplugin treats it the same way.
     """
     if not hasattr(state, "get"):
         return False
