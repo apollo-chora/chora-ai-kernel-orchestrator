@@ -310,6 +310,13 @@ async def source_material_text_for_state(
     if not declares_source_material(state):
         return "", True
 
+    # Already-resolved material is honoured rather than refetched: a resumed or
+    # replayed run must not pay a second round-trip, and a caller that has
+    # already done the work should not be forced through the network again.
+    existing = _state_str(state, "source_material_text")
+    if existing:
+        return existing, True
+
     resolved = client if client is not None else CreationSourceMaterialClient.from_env()
     if resolved is None:
         raise SourceMaterialError(
