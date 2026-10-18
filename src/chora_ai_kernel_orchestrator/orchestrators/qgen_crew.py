@@ -1489,8 +1489,10 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
         if suffix:
             gen_input["prompt"] = str(gen_input.get("prompt") or "") + "\n" + suffix
 
-    # Grounding passthrough — identical to generate_node so a grounded set
-    # inlines the uploaded blob + appends the citations/rubric prompt block.
+    # Grounding passthrough. NOTE: the uploaded BLOB is deliberately NOT inlined
+    # any more — the model gateway's canonical contract cannot carry it. These
+    # fields survive only for prompt/citation semantics; the material the model
+    # actually reads is source_material_text, resolved below.
     source_blob_uri = str(state.get("source_blob_uri") or "")
     if source_blob_uri:
         gen_input["source_blob_uri"] = source_blob_uri
@@ -1620,6 +1622,12 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
 
     return {
         "candidate_set": candidates,
+        # Persist the resolved corpus so later chunks/regens (and compose) reuse
+        # EXACTLY the same material instead of re-fetching creation per turn.
+        # Without this the node's own short-circuit never fires, because each
+        # turn starts from the original state.
+        "source_material_text": material_text,
+        "source_material_complete": material_complete,
         "model_shortfall_reason": str(model_summary.get("shortfall_reason") or ""),
         "pipeline_trace": _append_trace(
             state,

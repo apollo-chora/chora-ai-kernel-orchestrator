@@ -315,7 +315,11 @@ async def source_material_text_for_state(
     # already done the work should not be forced through the network again.
     existing = _state_str(state, "source_material_text")
     if existing:
-        return existing, True
+        # Preserve the stored completeness instead of assuming the corpus was
+        # whole: a truncated resolution that later re-reports itself as complete
+        # would hide the truncation from every downstream consumer.
+        stored = state.get("source_material_complete") if hasattr(state, "get") else None
+        return existing, stored if isinstance(stored, bool) else True
 
     resolved = client if client is not None else CreationSourceMaterialClient.from_env()
     if resolved is None:
