@@ -66,3 +66,35 @@ def test_grounding_mode_omitted_when_blank() -> None:
     assert s["source_blob_uri"] == "gs://b/m.png"
     assert s["source_mime_type"] == "image/png"
     assert "grounding_mode" not in s
+
+
+def test_rendered_material_reaches_session_state() -> None:
+    """The Go grounding plugin reads SESSION STATE, not the dispatch payload.
+
+    Stamping source_material_text only into the payload left the agent with an
+    empty value, so it refused to generate (correctly) and every file-based job
+    failed one layer later than before. This pins the handoff, which payload
+    tests could not see.
+    """
+    s = _state(
+        {
+            "source_blob_uri": "s3://b/jobs/job-1/source",
+            "source_material_text": '<SOURCE file="p.pdf" page="1">Text.</SOURCE>',
+            "source_material_complete": False,
+        }
+    )
+    assert s["source_material_text"] == '<SOURCE file="p.pdf" page="1">Text.</SOURCE>'
+    # Truncation must survive the handoff, not be reset to "whole".
+    assert s["source_material_complete"] is False
+
+
+def test_material_text_stamped_without_a_scalar_blob_mirror() -> None:
+    """The set lane can carry the text with no scalar blob mirror."""
+    s = _state({"source_material_text": "<SOURCE>only text</SOURCE>"})
+    assert s["source_material_text"] == "<SOURCE>only text</SOURCE>"
+    assert s["source_material_complete"] is True
+
+
+def test_no_material_key_when_absent() -> None:
+    s = _state({})
+    assert "source_material_text" not in s

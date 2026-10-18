@@ -297,6 +297,15 @@ def build_session_state(
             grounding_mode = str(input_obj.get("grounding_mode") or "")
             if grounding_mode:
                 base_state["grounding_mode"] = grounding_mode
+        # The RENDERED grounding text. This key is what the Go grounding plugin
+        # actually reads — stamping it only into the dispatch payload leaves the
+        # agent with an empty value and it refuses (correctly) to generate
+        # ungrounded. Surfaced independently of source_blob_uri because the set
+        # lane may carry the text without a scalar blob mirror.
+        material_text = str(input_obj.get("source_material_text") or "")
+        if material_text:
+            base_state["source_material_text"] = material_text
+            base_state["source_material_complete"] = bool(input_obj.get("source_material_complete", True))
         # For ai_model_answer (Intent=model_answer_fill) surface the
         # author's existing stem / options / rubric as TOP-LEVEL state
         # keys so the qgen_question agent's fill_mcq / fill_oe templates
