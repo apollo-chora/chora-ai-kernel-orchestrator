@@ -47,6 +47,13 @@ ENV_S3_SECURE = "S3_SECURE"
 # rewritten into a public one — the signature would not match. When set, the
 # adapter mints URLs with this host instead (signing needs no connection).
 ENV_S3_PUBLIC_ENDPOINT = "S3_PUBLIC_ENDPOINT"
+# The bucket's region. MinIO's SDK resolves a region by issuing a LIVE
+# ``GET /{bucket}?location=`` on the client's endpoint unless one is configured,
+# which makes presigning a network call. Signed against the public endpoint that
+# call targets a host the container cannot reach (``localhost:9000`` is the
+# container itself), so every upload succeeded and every sign failed. Passing
+# the region pins it, and the SDK stops asking.
+ENV_S3_REGION = "S3_REGION"
 
 # Presigned-URL maximum (7 days). Persisted question/answer images must survive
 # the author→test-set→assessment→learner-take journey; a 15-min link would 404
@@ -175,6 +182,7 @@ class GcsImageUploadAdapter:
                 access_key=self._access_key or os.getenv(ENV_S3_ACCESS_KEY, "").strip() or None,
                 secret_key=self._secret_key or os.getenv(ENV_S3_SECRET_KEY, "").strip() or None,
                 secure=bool(secure),
+                region=_region_from_env(),
             )
         return self._signing_client
 
@@ -218,8 +226,14 @@ class GcsImageUploadAdapter:
             access_key=access_key or None,
             secret_key=secret_key or None,
             secure=secure,
+            region=_region_from_env(),
         )
         return self._client
+
+
+def _region_from_env() -> str | None:
+    """``S3_REGION`` when the deployment states one, else None (SDK asks)."""
+    return (os.getenv(ENV_S3_REGION) or "").strip() or None
 
 
 def _env_flag(name: str) -> bool | None:

@@ -90,3 +90,41 @@ async def test_sign_read_url_uses_the_public_endpoint_when_configured() -> None:
 
     assert url == "https://public.example/chora-ai-assist-images/tenants/t/jobs/j/abc.png?sig=abc"
     assert signed == [("chora-ai-assist-images", "tenants/t/jobs/j/abc.png")]
+
+
+def test_both_clients_are_built_with_the_configured_region(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MinIO resolves a region with a LIVE call unless one is configured.
+
+    ``presigned_get_object`` asks ``GET /{bucket}?location=`` on the client's
+    endpoint when no region is pinned. Signed against the public endpoint, that
+    call targets a host the container cannot reach (``localhost:9000`` is the
+    container itself), so every upload succeeded and every sign failed. The
+    region from ``S3_REGION`` pins it for both the upload and signing clients.
+    """
+    import minio
+
+    recorded: list[dict[str, object]] = []
+
+    class _Recorder:
+        def __init__(self, endpoint: str, **kwargs: object) -> None:
+            recorded.append({"endpoint": endpoint, **kwargs})
+
+        def put_object(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        def presigned_get_object(self, *args: object, **kwargs: object) -> str:
+            return "https://public.example/x"
+
+    monkeypatch.setattr(minio, "Minio", _Recorder)
+    monkeypatch.setenv("QGEN_IMAGE_GCS_BUCKET", "chora-ai-assist-images")
+    monkeypatch.setenv("S3_ENDPOINT", "http://garage:3900")
+    monkeypatch.setenv("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
+    monkeypatch.setenv("S3_REGION", "us-east-1")
+    adapter = GcsImageUploadAdapter.from_env()
+    assert adapter is not None
+
+    adapter._resolve_client()
+    adapter._resolve_signing_client()
+
+    assert [entry["endpoint"] for entry in recorded] == ["garage:3900", "localhost:9000"]
+    assert [entry.get("region") for entry in recorded] == ["us-east-1", "us-east-1"]
