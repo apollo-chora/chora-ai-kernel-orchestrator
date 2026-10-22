@@ -105,7 +105,7 @@ async def test_retrieval_failure_refuses_before_dispatch(monkeypatch: pytest.Mon
     # The whole point of resolving here rather than at the model boundary.
     assert executor.calls == [], "must not spend a model call on ungroundable material"
     assert out["refusal_reason"] == "VALIDATION"
-    assert out["refusal_user_facing_message"] == qgen_crew._GROUNDING_UNAVAILABLE_USER_MESSAGE
+    assert out["refusal_user_facing_message"] == qgen_crew._GROUNDING_UNAVAILABLE_BY_REASON[REASON_NO_TEXT]
     assert out["refusal_user_facing_message"] != qgen_crew._EXECUTOR_FAILURE_USER_MESSAGE
     assert any("no extractable text" in e for e in out["errors"])
     assert "source_material_text" not in out
@@ -131,3 +131,96 @@ async def test_ungrounded_job_never_calls_the_resolver(monkeypatch: pytest.Monke
     assert executor.calls, "the prompt-only path must still dispatch"
     assert "source_material_text" not in __import__("json").loads(executor.calls[0]["input_payload"])
     assert out.get("source_material_text", "") == ""
+
+
+@pytest.mark.parametrize("reason", sorted(qgen_crew._GROUNDING_UNAVAILABLE_BY_REASON))
+def test_grounding_copy_is_specific_per_reason(reason: str) -> None:
+    message = qgen_crew._grounding_unavailable_message(reason)
+    assert message == qgen_crew._GROUNDING_UNAVAILABLE_BY_REASON[reason]
+    assert message != qgen_crew._GROUNDING_UNAVAILABLE_USER_MESSAGE
+
+
+def test_unknown_grounding_reason_falls_back_to_generic_copy() -> None:
+    assert (
+        qgen_crew._grounding_unavailable_message("a_reason_this_module_does_not_know")
+        == qgen_crew._GROUNDING_UNAVAILABLE_USER_MESSAGE
+    )
+
+
+class _ContractThenValidExecutor:
+    """Violates the set contract once, then answers properly."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def execute(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        payload = (
+            "{}"
+            if len(self.calls) == 1
+            else '{"candidates":[{"draft_id":"d-1","stem":"Q?","question_type":"mcq"}],"generation_summary":{}}'
+        )
+
+        class _Resp:
+            output_payload = payload
+            output_tokens = 5
+            input_tokens = 5
+            model_id = "test-model"
+
+        return _Resp()
+
+
+@pytest.mark.asyncio
+async def test_contract_violation_is_repaired_once_with_a_distinct_execution_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _resolved(state: Any, **_kw: Any) -> tuple[str, bool]:
+        return MATERIAL, True
+
+    monkeypatch.setattr(TARGET, _resolved)
+    executor = _ContractThenValidExecutor()
+
+    out = await qgen_crew.generate_set_node(_state(), executor=executor)
+
+    assert len(executor.calls) == 2, "a contract violation must earn exactly one repair"
+    first_id = executor.calls[0]["execution_id"]
+    repair_id = executor.calls[1]["execution_id"]
+    assert repair_id != first_id, "the repair must not reuse the idempotency key it replaces"
+    assert "generate_set_repair" in repair_id
+    loads = __import__("json").loads
+    assert qgen_crew._SET_REPAIR_INSTRUCTION not in loads(executor.calls[0]["input_payload"])["prompt"]
+    assert qgen_crew._SET_REPAIR_INSTRUCTION in loads(executor.calls[1]["input_payload"])["prompt"]
+    assert out["candidate_set"], "the repaired answer must be the one used"
+    assert "refusal_reason" not in out
+
+
+@pytest.mark.asyncio
+async def test_repair_that_also_violates_refuses_naming_chunk_and_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _resolved(state: Any, **_kw: Any) -> tuple[str, bool]:
+        return MATERIAL, True
+
+    monkeypatch.setattr(TARGET, _resolved)
+    executor = _Executor()
+
+    async def _always_invalid(**kwargs: Any) -> Any:
+        executor.calls.append(kwargs)
+
+        class _Resp:
+            output_payload = "{}"
+            output_tokens = 5
+            input_tokens = 5
+            model_id = "test-model"
+
+        return _Resp()
+
+    executor.execute = _always_invalid  # type: ignore[method-assign]
+
+    out = await qgen_crew.generate_set_node(_state(), executor=executor)
+
+    assert len(executor.calls) == 2, "the repair is bounded; it must not loop"
+    assert out["refusal_reason"] == "VALIDATION"
+    assert out["refusal_user_facing_message"] == qgen_crew._SET_VALIDATION_USER_MESSAGE
+    assert any("chunk=0" in e for e in out["errors"])
+    assert any("test-model" in e for e in out["errors"])

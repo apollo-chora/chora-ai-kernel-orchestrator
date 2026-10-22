@@ -72,6 +72,12 @@ from chora_ai_kernel_orchestrator.adapter.agent_io.agent_response import (
     AgentExecutorResponse,
 )
 from chora_ai_kernel_orchestrator.adapter.creation.source_material import (
+    REASON_BAD_RESPONSE,
+    REASON_FAILED,
+    REASON_NOT_CONFIGURED,
+    REASON_NO_TEXT,
+    REASON_REJECTED,
+    REASON_UNREACHABLE,
     SourceMaterialError,
     source_material_text_for_state,
 )
@@ -185,14 +191,57 @@ _SET_VALIDATION_USER_MESSAGE = "The generator returned an invalid question set; 
 # untrue statement, and the surface already offers its own retry control.
 _EXECUTOR_FAILURE_USER_MESSAGE = "We couldn't complete question generation because of a service error."
 
-# User-facing copy when the job's own source material could not be prepared —
-# the document yielded no extractable text, creation refused the job, or the
-# reader is misconfigured. Kept distinct from the infrastructure copy above: the
-# author can act on this one, and "a service error occurred" would be one more
-# misleading message in a fix whose purpose is removing them.
+# Fallback copy when the source material could not be prepared and the reader
+# reported a cause this module does not recognise. Kept distinct from the
+# infrastructure copy above: the author can act on a document problem, and "a
+# service error occurred" would be one more misleading message.
 _GROUNDING_UNAVAILABLE_USER_MESSAGE = (
     "We couldn't use the document you uploaded for question generation. "
     "Try a text-based file (a PDF with selectable text, Word, or plain text)."
+)
+
+# Per-cause copy for the same failure. The reader separates a document it could
+# not read (the author's to fix) from a fault on our side (not theirs), so one
+# collapsed message tells half the authors to change a file that is fine.
+_GROUNDING_UNAVAILABLE_BY_REASON = {
+    REASON_NO_TEXT: (
+        "The document you uploaded has no selectable text, so there was nothing to read — "
+        "it is probably a scan or an image-only PDF. Upload a PDF with selectable text, "
+        "a Word file, or plain text."
+    ),
+    REASON_REJECTED: (
+        "We couldn't prepare the document you uploaded for question generation. "
+        "Check that it is a PDF, Word, or plain text file within the size limit."
+    ),
+    REASON_FAILED: (
+        "We couldn't prepare the document you uploaded for question generation. "
+        "Check that it is a PDF, Word, or plain text file within the size limit."
+    ),
+    REASON_UNREACHABLE: (
+        "We couldn't reach the service that reads your document. This is temporary — "
+        "please try again in a moment."
+    ),
+    REASON_NOT_CONFIGURED: (
+        "Document reading is unavailable on this deployment right now. "
+        "This is a problem on our side, not with your file."
+    ),
+    REASON_BAD_RESPONSE: (
+        "We couldn't read your document because of an internal error. "
+        "This is a problem on our side, not with your file."
+    ),
+}
+
+
+def _grounding_unavailable_message(reason: str) -> str:
+    return _GROUNDING_UNAVAILABLE_BY_REASON.get(reason, _GROUNDING_UNAVAILABLE_USER_MESSAGE)
+
+
+# Appended to the request on the one repair retry, so the second attempt is told
+# what went wrong instead of being handed the identical prompt.
+_SET_REPAIR_INSTRUCTION = (
+    "\n\nYour previous answer could not be parsed as the required question set. "
+    "Return only the question set, exactly matching the required schema: no prose, "
+    "no commentary, no markdown code fences."
 )
 
 # User-facing message surfaced on a Cloud Model Armor BLOCK verdict —
@@ -1527,7 +1576,7 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
         failed_at = _now_iso()
         return {
             "refusal_reason": "VALIDATION",
-            "refusal_user_facing_message": _GROUNDING_UNAVAILABLE_USER_MESSAGE,
+            "refusal_user_facing_message": _grounding_unavailable_message(exc.reason),
             "errors": _append_error(state, msg),
             "pipeline_trace": _append_trace(
                 state,
@@ -1556,69 +1605,100 @@ async def generate_set_node(state: QGenCrewState, *, executor: _ExecutorLike) ->
     _thread_prompt_overrides(gen_input, state, "question")
     payload = json.dumps(gen_input)
     started_at = _now_iso()
-    try:
-        # ADR-254 D2: the execution id (and so the dispatch idempotency key)
-        # carries the CHUNK as well as the round. Keyed on the round alone, chunk
-        # 2's first generate collided with chunk 1's and deduped to nothing.
-        resp = await executor.execute(
-            execution_id=_set_execution_id(state, "generate_set"),
-            tenant_id=state.get("tenant_id", ""),
-            agid=ROLE_GENERATE,
-            agent_role=ROLE_GENERATE,
-            input_payload=payload,
-            workflow_id=str(state.get("job_id") or ""),
-            prompt_template_id="qgen_crew::generate",
-        )
-    except Exception as exc:
-        # ADR-253: a park is control flow, not a failure. Without this the
-        # Pub/Sub dispatch above is swallowed and the author is shown a
-        # VALIDATION refusal on a run that merely parked.
-        reraise_if_dispatch_park(exc)
-        msg = f"generate_set executor error: {exc.__class__.__name__}: {exc}"
-        logger.warning(
-            "qgen_crew.generate_set.executor_failed",
-            extra={"job_id": str(state.get("job_id") or ""), "err": msg},
-            exc_info=True,
-        )
-        return {
-            "refusal_reason": "VALIDATION",
-            "refusal_user_facing_message": _EXECUTOR_FAILURE_USER_MESSAGE,
-            "errors": _append_error(state, msg),
-            "pipeline_trace": _append_trace(
-                state,
-                "generate",
-                status="FAILED",
-                attempt=regen_round + 1,
-                notes=msg,
-                started_at=started_at,
-                completed_at=_now_iso(),
-            ),
-        }
-    completed_at = _now_iso()
-    gen_input_tokens = _input_tokens_of(resp)
-    gen_output_tokens = int(getattr(resp, "output_tokens", 0) or 0)
+    completed_at = started_at
+    gen_input_tokens = 0
+    gen_output_tokens = 0
+    model_id = ""
+    candidates: list[dict[str, Any]] = []
+    model_summary: dict[str, Any] = {}
+    for repair_attempt in (0, 1):
+        if repair_attempt:
+            gen_input["prompt"] = str(gen_input.get("prompt") or "") + _SET_REPAIR_INSTRUCTION
+            payload = json.dumps(gen_input)
+        try:
+            # ADR-254 D2: the execution id (and so the dispatch idempotency key)
+            # carries the CHUNK as well as the round. Keyed on the round alone, chunk
+            # 2's first generate collided with chunk 1's and deduped to nothing.
+            # The repair retry carries its own step name: reusing the first
+            # attempt's id would dedupe onto the answer it exists to replace.
+            resp = await executor.execute(
+                execution_id=_set_execution_id(
+                    state, "generate_set_repair" if repair_attempt else "generate_set"
+                ),
+                tenant_id=state.get("tenant_id", ""),
+                agid=ROLE_GENERATE,
+                agent_role=ROLE_GENERATE,
+                input_payload=payload,
+                workflow_id=str(state.get("job_id") or ""),
+                prompt_template_id="qgen_crew::generate",
+            )
+        except Exception as exc:
+            # ADR-253: a park is control flow, not a failure. Without this the
+            # Pub/Sub dispatch above is swallowed and the author is shown a
+            # VALIDATION refusal on a run that merely parked.
+            reraise_if_dispatch_park(exc)
+            msg = f"generate_set executor error: {exc.__class__.__name__}: {exc}"
+            logger.warning(
+                "qgen_crew.generate_set.executor_failed",
+                extra={"job_id": str(state.get("job_id") or ""), "err": msg},
+                exc_info=True,
+            )
+            return {
+                "refusal_reason": "VALIDATION",
+                "refusal_user_facing_message": _EXECUTOR_FAILURE_USER_MESSAGE,
+                "errors": _append_error(state, msg),
+                "pipeline_trace": _append_trace(
+                    state,
+                    "generate",
+                    status="FAILED",
+                    attempt=regen_round + 1,
+                    notes=msg,
+                    started_at=started_at,
+                    completed_at=_now_iso(),
+                ),
+            }
+        completed_at = _now_iso()
+        gen_input_tokens = _input_tokens_of(resp)
+        gen_output_tokens = int(getattr(resp, "output_tokens", 0) or 0)
+        model_id = str(getattr(resp, "model_id", "") or "")
 
-    raw = _safe_json_loads(resp.output_payload or "", {})
-    try:
-        candidates, model_summary = parse_set_response(raw, type_plan, grounding_mode=grounding_mode)
-    except AgentContractViolation as exc:
-        msg = f"generate_set contract violation: {exc}"
-        return {
-            "refusal_reason": "VALIDATION",
-            "refusal_user_facing_message": _SET_VALIDATION_USER_MESSAGE,
-            "errors": _append_error(state, msg),
-            "pipeline_trace": _append_trace(
-                state,
-                "generate",
-                status="FAILED",
-                attempt=regen_round + 1,
-                input_tokens=gen_input_tokens,
-                output_tokens=gen_output_tokens,
-                notes=msg,
-                started_at=started_at,
-                completed_at=completed_at,
-            ),
-        }
+        raw = _safe_json_loads(resp.output_payload or "", {})
+        try:
+            candidates, model_summary = parse_set_response(raw, type_plan, grounding_mode=grounding_mode)
+            break
+        except AgentContractViolation as exc:
+            if not repair_attempt:
+                logger.warning(
+                    "qgen_crew.generate_set.contract_violation_repairing",
+                    extra={
+                        "job_id": str(state.get("job_id") or ""),
+                        "chunk_index": int(state.get("chunk_index") or 0),
+                        "model_id": model_id,
+                        "err": str(exc),
+                    },
+                )
+                continue
+            msg = (
+                "generate_set contract violation after repair: "
+                f"chunk={int(state.get('chunk_index') or 0)} "
+                f"model={model_id or 'unknown'}: {exc}"
+            )
+            return {
+                "refusal_reason": "VALIDATION",
+                "refusal_user_facing_message": _SET_VALIDATION_USER_MESSAGE,
+                "errors": _append_error(state, msg),
+                "pipeline_trace": _append_trace(
+                    state,
+                    "generate",
+                    status="FAILED",
+                    attempt=regen_round + 1,
+                    input_tokens=gen_input_tokens,
+                    output_tokens=gen_output_tokens,
+                    notes=msg,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                ),
+            }
 
     return {
         "candidate_set": candidates,

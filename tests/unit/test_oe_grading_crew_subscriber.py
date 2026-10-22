@@ -107,6 +107,37 @@ async def test_missing_dedup_key_nacks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reads_canonical_chora_headers_as_dedup_key() -> None:
+    """chora-delivery's outbox path publishes the envelope as `Chora-*` headers
+    with a body that carries no envelope, so the canonical names are the only
+    place the dedup key exists."""
+    runner, inbox = _FakeRunner(), _FakeInbox()
+    sub = OEGradingCrewSubscriber(runner=runner, inbox=inbox)
+    msg = _FakeMsg(
+        data=_body(),
+        attributes={"tenant_id": "t", "Chora-Event-Id": "evt-1", "Chora-Tenant-Id": "t"},
+    )
+
+    await sub.handle_message(msg)
+    assert msg.acked and not msg.nacked
+    assert len(runner.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_reads_canonical_idempotency_key_as_dedup_key() -> None:
+    runner, inbox = _FakeRunner(), _FakeInbox()
+    sub = OEGradingCrewSubscriber(runner=runner, inbox=inbox)
+    msg = _FakeMsg(
+        data=_body(),
+        attributes={"tenant_id": "t", "Chora-Idempotency-Key": "idem-1"},
+    )
+
+    await sub.handle_message(msg)
+    assert msg.acked and not msg.nacked
+    assert len(runner.events) == 1
+
+
+@pytest.mark.asyncio
 async def test_decode_failure_nacks() -> None:
     runner, inbox = _FakeRunner(), _FakeInbox()
     sub = OEGradingCrewSubscriber(runner=runner, inbox=inbox)
@@ -130,3 +161,41 @@ async def test_duplicate_event_runs_once_both_ack() -> None:
 
     assert m1.acked and m2.acked  # dedupe-hit still ACKs
     assert len(runner.events) == 1  # runner invoked once
+
+
+@pytest.mark.asyncio
+async def test_merges_tenant_id_and_gcid_from_canonical_headers() -> None:
+    """delivery's outbox path publishes the envelope as canonical `Chora-*`
+    headers, so tenant_id/gcid must be read from there too. The body carries
+    learner_gcid, so drop it here to exercise the attribute merge itself."""
+    runner, inbox = _FakeRunner(), _FakeInbox()
+    sub = OEGradingCrewSubscriber(runner=runner, inbox=inbox)
+    body = json.loads(_body())
+    del body["learner_gcid"]
+    msg = _FakeMsg(
+        data=json.dumps(body).encode("utf-8"),
+        attributes={
+            "Chora-Event-Id": "evt-1",
+            "Chora-Tenant-Id": "tenant-canonical",
+            "Chora-Gcid": "instructor-1",
+        },
+    )
+
+    await sub.handle_message(msg)
+    assert msg.acked and not msg.nacked
+    assert runner.events[0]["tenant_id"] == "tenant-canonical"
+    assert runner.events[0]["learner_gcid"] == "instructor-1"
+
+
+@pytest.mark.asyncio
+async def test_body_learner_gcid_wins_over_canonical_header() -> None:
+    """The attribute merge is defensive: a body value is never overwritten."""
+    runner, inbox = _FakeRunner(), _FakeInbox()
+    sub = OEGradingCrewSubscriber(runner=runner, inbox=inbox)
+    msg = _FakeMsg(
+        data=_body(),
+        attributes={"Chora-Event-Id": "evt-1", "Chora-Tenant-Id": "t", "Chora-Gcid": "other"},
+    )
+
+    await sub.handle_message(msg)
+    assert runner.events[0]["learner_gcid"] == "learner-1"

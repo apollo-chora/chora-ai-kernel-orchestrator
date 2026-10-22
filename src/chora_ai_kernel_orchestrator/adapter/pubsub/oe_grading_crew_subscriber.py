@@ -60,6 +60,23 @@ class _MessageLike(Protocol):
     def nack(self) -> None: ...
 
 
+# The Go eventbus (chora-common/eventbus `envelopeHeaders`) projects the
+# envelope onto canonical `Chora-*` header names; the snake_case key is only
+# present when a Python publisher mirrored it into the payload. Read either.
+_CANONICAL_HEADER_NAMES = {
+    "event_id": "Chora-Event-Id",
+    "idempotency_key": "Chora-Idempotency-Key",
+    "tenant_id": "Chora-Tenant-Id",
+    "gcid": "Chora-Gcid",
+    "traceparent": "Traceparent",
+    "tracestate": "Tracestate",
+}
+
+
+def envelope_attr(attributes: dict[str, str], key: str) -> str:
+    return attributes.get(key) or attributes.get(_CANONICAL_HEADER_NAMES.get(key, key), "")
+
+
 class OEGradingCrewSubscriber:
     """Wraps OEGradingCrewRunner with inbox dedupe + ack-after-processing."""
 
@@ -103,8 +120,8 @@ class OEGradingCrewSubscriber:
         # body-nested envelope.
         env_in_body = event.get("envelope") if isinstance(event, dict) else None
         dedup_key = (
-            msg.attributes.get("idempotency_key")
-            or msg.attributes.get("event_id")
+            envelope_attr(msg.attributes, "idempotency_key")
+            or envelope_attr(msg.attributes, "event_id")
             or (env_in_body.get("idempotency_key") if isinstance(env_in_body, dict) else "")
             or (env_in_body.get("event_id") if isinstance(env_in_body, dict) else "")
             or ""
@@ -125,19 +142,19 @@ class OEGradingCrewSubscriber:
         # merge the crew would dispatch with an EMPTY tenant_id → the agent
         # manaplugin refuses the run + RLS/cost attribution breaks. (gcid is also
         # in the body as learner_gcid; the merge is defensive.)
-        attr_tenant = msg.attributes.get("tenant_id", "")
+        attr_tenant = envelope_attr(msg.attributes, "tenant_id")
         if attr_tenant and not event.get("tenant_id"):
             event["tenant_id"] = attr_tenant
-        attr_gcid = msg.attributes.get("gcid", "")
+        attr_gcid = envelope_attr(msg.attributes, "gcid")
         if attr_gcid and not event.get("learner_gcid"):
             event["learner_gcid"] = attr_gcid
 
         # Step 3b: thread the trace context (attributes first; delivery emits
         # traceparent in the body too, tracestate only on attributes).
-        tp = msg.attributes.get("traceparent", "") or event.get("traceparent", "")
+        tp = envelope_attr(msg.attributes, "traceparent") or event.get("traceparent", "")
         if tp:
             event["traceparent"] = tp
-        ts = msg.attributes.get("tracestate", "") or event.get("tracestate", "")
+        ts = envelope_attr(msg.attributes, "tracestate") or event.get("tracestate", "")
         if ts:
             event["tracestate"] = ts
 

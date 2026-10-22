@@ -148,7 +148,7 @@ def _try_has_park_handler_before(try_node: ast.Try, handler: ast.ExceptHandler) 
 
 
 def _unguarded_dispatch_sites(module_path: Path) -> list[str]:
-    tree = ast.parse(module_path.read_text())
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
     offenders: list[str] = []
     for try_node in [n for n in ast.walk(tree) if isinstance(n, ast.Try)]:
         dispatch_lines = [c.lineno for stmt in try_node.body for c in ast.walk(stmt) if _is_dispatch_call(c)]
@@ -296,9 +296,9 @@ def _modules_that_dispatch() -> dict[str, int]:
     """Every module in the package holding at least one real dispatch site."""
     out: dict[str, int] = {}
     for path in sorted(_SRC_ROOT.rglob("*.py")):
-        n = sum(1 for node in ast.walk(ast.parse(path.read_text())) if _is_agent_dispatch(node))
+        n = sum(1 for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if _is_agent_dispatch(node))
         if n:
-            out[str(path.relative_to(_SRC_ROOT))] = n
+            out[path.relative_to(_SRC_ROOT).as_posix()] = n
     return out
 
 
@@ -386,5 +386,5 @@ def test_no_dispatch_anywhere_in_the_package_sits_in_a_park_eating_except() -> N
     """The whole-package sweep. No hand-maintained module list to fall behind."""
     offenders: list[str] = []
     for path in sorted(_SRC_ROOT.rglob("*.py")):
-        offenders += _park_eaters_in_source(path.read_text(), str(path.relative_to(_SRC_ROOT)))
+        offenders += _park_eaters_in_source(path.read_text(encoding="utf-8"), str(path.relative_to(_SRC_ROOT)))
     assert offenders == [], "park-eating dispatch guard(s):\n  " + "\n  ".join(offenders)

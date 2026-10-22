@@ -43,7 +43,7 @@ _LOUD = {"exception", "error", "critical", "warning"}
 def _iter_modules() -> list[tuple[str, ast.Module]]:
     out = []
     for path in sorted(_SRC_ROOT.rglob("*.py")):
-        out.append((str(path.relative_to(_SRC_ROOT)), ast.parse(path.read_text())))
+        out.append((str(path.relative_to(_SRC_ROOT)), ast.parse(path.read_text(encoding="utf-8"))))
     return out
 
 
@@ -167,8 +167,8 @@ def test_every_broad_handler_reraises_logs_or_is_explicitly_exempt() -> None:
     offenders: list[str] = []
     for path in sorted(_SRC_ROOT.rglob("*.py")):
         label = str(path.relative_to(_SRC_ROOT))
-        lines = path.read_text().split("\n")
-        tree = ast.parse(path.read_text())
+        lines = path.read_text(encoding="utf-8").split("\n")
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
                 continue
@@ -189,7 +189,7 @@ def test_every_exemption_states_a_reason() -> None:
     """``# fail-loud-exempt:`` with nothing after it is not a reason."""
     bad: list[str] = []
     for path in sorted(_SRC_ROOT.rglob("*.py")):
-        for i, line in enumerate(path.read_text().split("\n"), start=1):
+        for i, line in enumerate(path.read_text(encoding="utf-8").split("\n"), start=1):
             if _EXEMPT_MARKER not in line:
                 continue
             reason = line.split(_EXEMPT_MARKER, 1)[1].strip()
